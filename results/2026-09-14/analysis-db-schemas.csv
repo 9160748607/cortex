@@ -1,0 +1,3 @@
+created_on,name,is_default,is_current,database_name,owner,comment,options,retention_time,owner_role_type,is_nested
+2026-09-14 16:47:59.944 -0700,INFORMATION_SCHEMA,N,N,ANALYSIS_DB,,Views describing the contents of schemas in this database,,1,,false
+2026-09-14 05:14:55.632 -0700,PUBLIC,N,Y,ANALYSIS_DB,ACCOUNTADMIN,,TRANSIENT,1,ROLE,false
