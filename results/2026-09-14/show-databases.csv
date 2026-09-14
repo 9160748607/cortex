@@ -1,0 +1,8 @@
+created_on,name,is_default,is_current,origin,owner,comment,options,retention_time,kind,owner_role_type,object_visibility,data_quality_monitoring_settings,resharing_settings
+2026-09-14 05:14:55.596 -0700,ANALYSIS_DB,N,N,,ACCOUNTADMIN,,TRANSIENT,1,STANDARD,ROLE,,,
+2026-09-01 22:00:37.669 -0700,COCO_DB_DEV,N,N,,SYSADMIN,Transient database for COCO CLI operations,TRANSIENT,1,STANDARD,ROLE,,,
+2026-09-13 15:15:44.625 -0700,COCO_DB_NAGUR,N,N,,SYSADMIN,Transient database for COCO CLI operations,TRANSIENT,1,STANDARD,ROLE,,,
+2026-08-31 05:26:06.619 -0700,SNOWFLAKE,N,N,SNOWFLAKE.ACCOUNT_USAGE,,,,0,APPLICATION,,,,
+2026-08-31 05:26:12.495 -0700,SNOWFLAKE_LEARNING_DB,N,N,,ACCOUNTADMIN,Created by Snowflake during account provisioning,,1,STANDARD,ROLE,,,
+2026-08-31 05:26:12.224 -0700,SNOWFLAKE_SAMPLE_DATA,N,N,SFSALESSHARED.SFC_SAMPLES_AWSUSEAST2.SAMPLE_DATA,ACCOUNTADMIN,Preloaded TPCH Data provided by Snowflake during account provisioning,,0,IMPORTED DATABASE,ROLE,,,
+2026-08-31 05:31:32.076 -0700,USER$NAGUR,N,N,,,,,1,PERSONAL DATABASE,,,,
