@@ -48,7 +48,7 @@ Separator is **two** underscores; the description itself cannot contain `__`.
 | `env` | `DEV` | `QA` | `PROD` |
 | `object_type` | `TRANSIENT` | `TRANSIENT` | *(empty)* |
 | `retention_days` | `1` | `1` | `7` |
-| `governance_database` | `SALES_GOVERNANCE` | ← same | ← same |
+| `governance_database` | `GOVERNANCE` | ← same | ← same |
 
 `object_type` is how architectural note 1 is honoured without forking scripts:
 it renders `CREATE TRANSIENT DATABASE` in dev/QA and `CREATE DATABASE` in prod.
@@ -97,7 +97,7 @@ dev_branch ──PR──> qa_branch ──PR──> main
 ```
 
 Deployment history per context lives in
-`SALES_GOVERNANCE.SCHEMACHANGE.CHANGE_HISTORY_<ENV>`.
+`GOVERNANCE.SCHEMACHANGE.CHANGE_HISTORY_<ENV>`.
 
 ## Architectural rules encoded here
 

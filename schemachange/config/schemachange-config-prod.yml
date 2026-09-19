@@ -11,7 +11,7 @@ config-version: 1
 
 root-folder: 'schemachange/scripts'
 
-change-history-table: 'SALES_GOVERNANCE.SCHEMACHANGE.CHANGE_HISTORY_PROD'
+change-history-table: 'GOVERNANCE.SCHEMACHANGE.CHANGE_HISTORY_PROD'
 create-change-history-table: true
 
 connection-name: 'ysirciu-vg28332'
@@ -19,7 +19,7 @@ connection-name: 'ysirciu-vg28332'
 vars:
   env: 'PROD'
   database: 'SALES_PROD'
-  governance_database: 'SALES_GOVERNANCE'
+  governance_database: 'GOVERNANCE'
   warehouse: 'COMPUTE_WH'
 
   # Intentionally EMPTY: prod hosts live data and must be permanent, so
