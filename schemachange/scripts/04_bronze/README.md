@@ -1,11 +1,11 @@
 # 04_bronze — raw landing zone
 
-**Status: scaffold.** No DDL yet — the source CSV column definitions in
-`__initial_load` have not been read, so table structures cannot be authored.
+**Status: partially complete.**
 
-This folder is intentionally empty of `.sql` files. schemachange only picks up
-files prefixed `V`, `R` or `A` with a `.sql`/`.sql.jinja` suffix, so this
-README is ignored by `schemachange deploy` and the project deploys cleanly as-is.
+- `V4.1.1__create_sales_csv_stage.sql` — **done**, the internal landing stage
+  (`sales_csv_stg`, SSE-encrypted, directory enabled).
+- Bronze **tables** are not written yet: the source CSV column definitions are
+  still needed for the `INFER_SCHEMA`-derived structures.
 
 ## Rules this folder must implement
 
@@ -29,14 +29,15 @@ From the architectural data-flow rules:
 
 ## Planned scripts
 
-Reserved version range **V4.x**:
+Reserved version range **V4.x**. `V4.1.x` is the stage; tables start at `V4.2.x`:
 
 ```
-V4.1.1__create_bronze_reference_tables.sql    # region, country, currency, tax
-V4.1.2__create_bronze_product_tables.sql      # category, family, model, sku, country availability
-V4.1.3__create_bronze_master_tables.sql       # store master, customer master
-V4.1.4__create_bronze_sales_tables.sql        # sales header, sales item
-V4.2.1__initial_copy_into_bronze.sql          # first full load from stage
+V4.1.1__create_sales_csv_stage.sql            # DONE
+V4.2.1__create_bronze_reference_tables.sql    # region, country, currency, tax
+V4.2.2__create_bronze_product_tables.sql      # category, family, model, sku, country availability
+V4.2.3__create_bronze_master_tables.sql       # store master, customer master
+V4.2.4__create_bronze_sales_tables.sql        # sales header, sales item
+V4.3.1__initial_copy_into_bronze.sql          # first full load from stage
 ```
 
 ## Unblocking
