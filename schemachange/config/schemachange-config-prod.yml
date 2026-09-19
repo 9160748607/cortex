@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# schemachange config - PROD context
+#
+# Promoted from QA via GitHub PR only, after business validation.
+#
+# Deploy:
+#   schemachange deploy --config-folder schemachange/config \
+#     --config-file-name schemachange-config-prod.yml --create-change-history-table
+# ---------------------------------------------------------------------------
+config-version: 1
+
+root-folder: 'schemachange/scripts'
+
+change-history-table: 'SALES_GOVERNANCE.SCHEMACHANGE.CHANGE_HISTORY_PROD'
+create-change-history-table: true
+
+connection-name: 'ysirciu-vg28332'
+
+vars:
+  env: 'PROD'
+  database: 'SALES_PROD'
+  governance_database: 'SALES_GOVERNANCE'
+  warehouse: 'COMPUTE_WH'
+
+  # Intentionally EMPTY: prod hosts live data and must be permanent, so
+  # fail-safe applies. Architectural note 1 scopes TRANSIENT to dev/qa only.
+  object_type: ''
+  retention_days: 7
+
+  cost_center: 'CC-SALES-ANALYTICS'
+  chargeback_owner: 'sales-data-engineering'

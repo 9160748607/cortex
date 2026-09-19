@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# schemachange config - QA context
+#
+# Promoted from DEV via GitHub PR only. Objects move "as is"; the only thing
+# that changes between contexts is the vars block below.
+#
+# Deploy:
+#   schemachange deploy --config-folder schemachange/config \
+#     --config-file-name schemachange-config-qa.yml --create-change-history-table
+# ---------------------------------------------------------------------------
+config-version: 1
+
+root-folder: 'schemachange/scripts'
+
+change-history-table: 'SALES_GOVERNANCE.SCHEMACHANGE.CHANGE_HISTORY_QA'
+create-change-history-table: true
+
+connection-name: 'ysirciu-vg28332'
+
+vars:
+  env: 'QA'
+  database: 'SALES_QA'
+  governance_database: 'SALES_GOVERNANCE'
+  warehouse: 'COMPUTE_WH'
+
+  # QA is TRANSIENT as well - architectural note 1 names both dev and qa.
+  object_type: 'TRANSIENT'
+  retention_days: 1
+
+  cost_center: 'CC-SALES-ANALYTICS'
+  chargeback_owner: 'sales-data-engineering'

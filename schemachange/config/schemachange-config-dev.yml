@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------------------
+# schemachange config - DEV context
+#
+# Apple Inc sales analytics, medallion architecture.
+# Deploy:
+#   schemachange deploy --config-folder schemachange/config \
+#     --config-file-name schemachange-config-dev.yml --create-change-history-table
+#
+# Architectural rule 1: dev tables/schemas are TRANSIENT (no fail-safe cost),
+# which is driven by the object_type var below.
+# ---------------------------------------------------------------------------
+config-version: 1
+
+# schemachange keys off FILE NAMES, not paths, so the subfolders under
+# scripts/ exist purely for human maintainability.
+root-folder: 'schemachange/scripts'
+
+# Change history lives in the shared governance DB, suffixed per environment so
+# all three contexts can coexist in this single Snowflake account.
+change-history-table: 'SALES_GOVERNANCE.SCHEMACHANGE.CHANGE_HISTORY_DEV'
+create-change-history-table: true
+
+connection-name: 'ysirciu-vg28332'
+
+vars:
+  env: 'DEV'
+  database: 'SALES_DEV'
+  governance_database: 'SALES_GOVERNANCE'
+  warehouse: 'COMPUTE_WH'
+
+  # TRANSIENT for dev/qa; deliberately empty in prod so the same scripts
+  # produce permanent objects there. See architectural note 1.
+  object_type: 'TRANSIENT'
+  retention_days: 1
+
+  # Chargeback tag values (architectural note 6).
+  cost_center: 'CC-SALES-ANALYTICS'
+  chargeback_owner: 'sales-data-engineering'
