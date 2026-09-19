@@ -4,8 +4,28 @@
 
 - `V4.1.1__create_sales_csv_stage.sql` — **done**, the internal landing stage
   (`sales_csv_stg`, SSE-encrypted, directory enabled).
-- Bronze **tables** are not written yet: the source CSV column definitions are
-  still needed for the `INFER_SCHEMA`-derived structures.
+- `_reference__stage_upload_commands.sql` — **reference only, never executed.**
+  The `snow stage copy` commands that staged the initial load, plus the Windows
+  PowerShell gotchas hit along the way. Underscore prefix keeps schemachange
+  from picking it up.
+- **47 source files are staged** (12.27 MB compressed) — see the table below.
+- Bronze **tables** are not written yet, but are now unblocked: with files in the
+  stage, `INFER_SCHEMA` can derive their structures.
+
+## Staged data
+
+| Folder | Files |
+|---|---|
+| `initial-load/country-master/` | 4 |
+| `initial-load/product-master/` | 5 |
+| `initial-load/store-master/` | 1 |
+| `initial-load/customer-master/2019/<CC>/` | 35 |
+| `initial-load/sales-transaction/2019/` | 2 |
+
+Only **2019** was staged for customer and sales; 2020–2025 are held back
+deliberately. The year sits in the stage path so later years land alongside
+rather than overwriting — every year reuses the same 35 country codes, so
+dropping the year level would collide.
 
 ## Rules this folder must implement
 
@@ -40,9 +60,21 @@ V4.2.4__create_bronze_sales_tables.sql        # sales header, sales item
 V4.3.1__initial_copy_into_bronze.sql          # first full load from stage
 ```
 
-## Unblocking
+## Next step
 
-Grant read access to the `__initial_load` folder
-(`...\cortex-code-cli-masterclass-v1.0\__initial_load`) — a previous attempt to
-list it was denied. With the 12 CSV headers available, these scripts plus
-`05_silver` and `06_gold` can be written.
+Files are staged, so `INFER_SCHEMA` can now be run against
+`COMMON.ff_csv_infer` to derive each table's structure, for example:
+
+```sql
+SELECT *
+FROM TABLE(
+  INFER_SCHEMA(
+    LOCATION      => '@BRONZE.sales_csv_stg/initial-load/country-master/',
+    FILE_FORMAT   => 'COMMON.ff_csv_infer',
+    IGNORE_CASE   => TRUE
+  )
+);
+```
+
+Feed those columns into the `V4.2.x` scripts, adding the 3 metadata columns, then
+load with `V4.3.1`.

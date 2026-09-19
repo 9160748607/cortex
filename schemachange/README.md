@@ -16,13 +16,13 @@ schemachange/
 │   ├── schemachange-config-qa.yml
 │   └── schemachange-config-prod.yml
 └── scripts/
-    ├── 01_governance/      V1.x  governance DB, schemas, tag definitions
-    ├── 02_foundation/      V2.x  environment DB, 4 schemas, tag attachment
-    ├── 03_common/          V3.x  file formats, landing stage, sequences
-    ├── 04_bronze/          V4.x  raw landing tables            (scaffold)
-    ├── 05_silver/          V5.x  cleaned dynamic tables        (scaffold)
-    ├── 06_gold/            V6.x  facts, dims, agg, semantic view (scaffold)
-    └── 07_orchestration/   V7.x  ingest task                   (scaffold)
+    ├── 01_governance/    V1.x  governance DB, schemas, tag definitions
+    ├── 02_foundation/    V2.x  environment DB, 4 schemas, tag attachment
+    ├── 03_common/        V3.x  file formats, sequences
+    ├── 04_bronze/        V4.x  landing stage (done), raw tables (pending)
+    ├── 05_silver/        V5.x  cleaned dynamic tables        (scaffold)
+    ├── 06_gold/          V6.x  facts, dims, agg, semantic view (scaffold)
+    └── 07_orchestration/ V7.x  ingest task                   (scaffold)
 ```
 
 schemachange keys off **file names, not paths** — the numbered folders exist
@@ -39,6 +39,20 @@ parallel work from colliding.
 | `A__<desc>.sql` | Always | Every run, last. |
 
 Separator is **two** underscores; the description itself cannot contain `__`.
+
+Anything **not** matching those three prefixes is ignored by schemachange. Two
+conventions rely on this:
+
+| Pattern | Purpose |
+|---|---|
+| `README.md` | folder documentation |
+| `_reference__*.sql` | client-side commands recorded for traceability, never executed |
+
+`_reference__*.sql` files hold operations that **cannot** live in a migration
+because they do not run inside Snowflake — `PUT` / `snow stage copy` execute from
+a workstation or CI runner. Keeping them in the repo makes the load
+reproducible and reviewable; the leading underscore guarantees
+`schemachange deploy` will not pick them up.
 
 ## Environment variables
 
@@ -117,9 +131,31 @@ and it must be restated in full to change a metric — reasoning in
 
 ## Current status
 
-`01_governance`, `02_foundation` and `03_common` are complete and compile-checked.
+**Deployed to `SALES_DEV`** — 12 versioned scripts applied and verified:
+`GOVERNANCE` (4 tags, 2 schemas), `SALES_DEV` (transient) with `BRONZE`/`SILVER`/
+`GOLD`/`COMMON`, tags attached at database and schema level, 2 CSV file formats,
+6 sequences, and the `sales_csv_stg` landing stage.
 
-`04_bronze` through `07_orchestration` are **scaffolds** — each folder's
-`README.md` records the rules, the reserved version range and the planned file
-names. They contain no `.sql`, so `schemachange deploy` runs cleanly today.
-Writing them needs the 12 source CSV headers from `__initial_load`.
+**Source data staged** — 47 files, 12.27 MB compressed, in
+`@SALES_DEV.BRONZE.sales_csv_stg/initial-load/`:
+
+| Folder | Files | Note |
+|---|---|---|
+| `country-master/` | 4 | region, country, currency, tax |
+| `product-master/` | 5 | category, family, model, sku, country availability |
+| `store-master/` | 1 | |
+| `customer-master/2019/<CC>/` | 35 | 2019 only; 35 country codes |
+| `sales-transaction/2019/` | 2 | header + item |
+
+Years **2020–2025 are deliberately not staged** for customer and sales. Commands
+used are recorded in `04_bronze/_reference__stage_upload_commands.sql`.
+
+No `COPY INTO` has run — bronze tables do not exist yet.
+
+### Outstanding
+
+| Item | Detail |
+|---|---|
+| `CHANGE_HISTORY_DEV` is empty | Dev was deployed by executing the rendered SQL directly, because the OAuth browser flow cannot complete unattended. Re-run `schemachange deploy` interactively to populate history; all 12 scripts are `IF NOT EXISTS`, so re-applying is harmless. Do this **before** the QA promotion. |
+| Bronze tables (`V4.2.x`) | Now unblocked — files are staged, so `INFER_SCHEMA` can derive structures against `COMMON.ff_csv_infer`. |
+| `05_silver` / `06_gold` / `07_orchestration` | Scaffolds; each folder's README holds the rules and reserved version range. |
