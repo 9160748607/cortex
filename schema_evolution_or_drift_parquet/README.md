@@ -1,4 +1,4 @@
-# Schema Drift & Schema Evolution — Store Master (Parquet)
+﻿# Schema Drift & Schema Evolution — Store Master (Parquet)
 
 End-to-end demonstration of **schema drift detection** and **Snowflake schema evolution** for **Parquet** sources, from files on disk through to a unified loaded table.
 
@@ -17,6 +17,7 @@ Third of three format exercises — see `../schema_evolution_or_drift/` (CSV) an
 
 | # | Script | Purpose |
 |---|---|---|
+| — | `COMPLETE_FLOW.sql` | **Whole sequence in one runnable file** + how Parquet column chunks map to the target |
 | — | `cli/upload_to_stage.ps1` | PUT both Parquet files to the internal stage |
 | 01 | `sql/01_create_objects.sql` | Schema, Parquet file format, stage |
 | 02 | `sql/02_schema_detection.sql` | `INFER_SCHEMA` per file **+ the `TYPEOF` cross-check** |

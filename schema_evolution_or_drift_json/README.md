@@ -1,4 +1,4 @@
-# Schema Drift & Schema Evolution — Store Master (JSON)
+﻿# Schema Drift & Schema Evolution — Store Master (JSON)
 
 End-to-end demonstration of **schema drift detection** and **Snowflake schema evolution** for **JSON** sources, from files on disk through to a unified loaded table.
 
@@ -15,6 +15,7 @@ A separate schema from `DATA_MIGRATION` deliberately — that one already holds 
 
 | # | Script | Purpose |
 |---|---|---|
+| — | `COMPLETE_FLOW.sql` | **Whole sequence in one runnable file** + how JSON keys become columns |
 | — | `cli/upload_to_stage.ps1` | PUT both JSON files to the internal stage |
 | 01 | `sql/01_create_objects.sql` | Schema, JSON file format, stage |
 | 02 | `sql/02_schema_detection.sql` | `INFER_SCHEMA` **per file** + the `NaN` investigation |

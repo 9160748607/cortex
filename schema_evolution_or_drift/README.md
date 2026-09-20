@@ -21,6 +21,7 @@ Source files → Schema detection → Drift identification → Schema evolution 
 
 | # | Script | Purpose |
 |---|---|---|
+| — | `COMPLETE_FLOW.sql` | **Whole sequence in one runnable file** + how CSV bytes become columns |
 | — | `cli/upload_to_stage.ps1` | PUT all 4 CSVs to the internal stage |
 | 01 | `sql/01_create_objects.sql` | Database, schema, 3 file formats, stage |
 | 02 | `sql/02_schema_detection.sql` | `INFER_SCHEMA` **per file**, type-conversion probes |
