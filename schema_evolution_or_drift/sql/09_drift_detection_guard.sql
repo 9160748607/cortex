@@ -73,7 +73,20 @@ WHERE SPLIT_PART(f.TYPE,'(',1) <> c.DATA_TYPE
 ORDER BY 1;
 /* Flags postal_code (NUMBER vs TEXT), the three date columns (TEXT vs DATE)
    and created_at (TEXT vs TEXT-by-design). Expected and already handled -
-   the value is that a NEW unexpected entry here means a NEW problem.        */
+   the value is that a NEW unexpected entry here means a NEW problem.
+
+   *** THIS CHECK OVER-REPORTS - PREFER 9.5 ***
+   Run against store_master_3_datatypechange...csv it returned FIVE "BLOCKING"
+   rows, but only ONE was real:
+     FLOOR_AREA_SQFT       genuine - the literal 'testing' in a NUMBER column
+     STORE_OPEN_DATE       FALSE POSITIVE - day-first dates that the file
+     EFFECTIVE_START_DATE  FALSE POSITIVE   format's DATE_FORMAT converts
+     EFFECTIVE_END_DATE    FALSE POSITIVE   perfectly
+     STORE_CLOSE_DATE      FALSE POSITIVE - 100% empty, nothing to convert
+   Comparing INFER_SCHEMA's guess to the declared type ignores the file format's
+   DATE_FORMAT, so every day-first date column looks broken. A guard that cries
+   wolf four times out of five gets muted, which is worse than no guard.
+   9.5 tests the VALUES instead and returns exactly one row.                  */
 
 -- ---------------------------------------------------------------------------
 -- 9.4 Duplicate business key pre-check.
@@ -89,3 +102,65 @@ WHERE t.store_code IN (
        (FILE_FORMAT => 'ANALYSIS_DB.DATA_MIGRATION.ff_store_master_inspect')
 );
 -- Non-zero => use the MERGE in 10_idempotent_merge_fix.sql, not COPY.
+
+-- ---------------------------------------------------------------------------
+-- 9.5 CASTABILITY PROBE - the accurate type-drift guard. PREFER THIS OVER 9.3.
+--
+-- Tests the actual VALUES against the target type using TRY_TO_*, rather than
+-- comparing INFER_SCHEMA's guess to the declared type. This respects the file
+-- format's DATE_FORMAT, so correctly-converting day-first dates report 0 and
+-- only genuine failures surface.
+--
+-- Run against store_master_3_datatypechange...csv it returns exactly one
+-- non-zero row - FLOOR_AREA_SQFT, 2 uncastable - versus 9.3's five.
+--
+-- The IS NOT NULL guard matters: a NULL is legitimately absent data, not a
+-- cast failure, and must not be counted as drift.
+--
+-- Extend one UNION ALL branch per typed target column. Swap the two
+-- placeholders and keep the positional $n aligned with the file's header.
+-- ---------------------------------------------------------------------------
+WITH raw AS (
+  SELECT $11 AS latitude, $12 AS longitude, $13 AS store_open_date,
+         $16 AS floor_area_sqft, $17 AS annual_rent_usd,
+         $19 AS effective_start_date, $20 AS effective_end_date
+  FROM @ANALYSIS_DB.DATA_MIGRATION.store_master_stg/store-master/store_master_3_datatypechange_numberdatasendingtextinafile.csv
+       (FILE_FORMAT => 'ANALYSIS_DB.DATA_MIGRATION.ff_store_master_inspect')
+)
+SELECT 'FLOOR_AREA_SQFT' AS column_name, 'NUMBER' AS target_type,
+       COUNT(*) AS rows_present, COUNT(floor_area_sqft) AS non_null,
+       SUM(IFF(floor_area_sqft IS NOT NULL
+               AND TRY_TO_NUMBER(floor_area_sqft) IS NULL,1,0)) AS uncastable FROM raw
+UNION ALL SELECT 'ANNUAL_RENT_USD','NUMBER',COUNT(*),COUNT(annual_rent_usd),
+       SUM(IFF(annual_rent_usd IS NOT NULL
+               AND TRY_TO_NUMBER(annual_rent_usd,14,2) IS NULL,1,0)) FROM raw
+UNION ALL SELECT 'LATITUDE','NUMBER',COUNT(*),COUNT(latitude),
+       SUM(IFF(latitude IS NOT NULL
+               AND TRY_TO_NUMBER(latitude,12,6) IS NULL,1,0)) FROM raw
+UNION ALL SELECT 'LONGITUDE','NUMBER',COUNT(*),COUNT(longitude),
+       SUM(IFF(longitude IS NOT NULL
+               AND TRY_TO_NUMBER(longitude,12,6) IS NULL,1,0)) FROM raw
+UNION ALL SELECT 'STORE_OPEN_DATE','DATE',COUNT(*),COUNT(store_open_date),
+       SUM(IFF(store_open_date IS NOT NULL
+               AND TRY_TO_DATE(store_open_date,'DD-MM-YYYY') IS NULL,1,0)) FROM raw
+UNION ALL SELECT 'EFFECTIVE_START_DATE','DATE',COUNT(*),COUNT(effective_start_date),
+       SUM(IFF(effective_start_date IS NOT NULL
+               AND TRY_TO_DATE(effective_start_date,'DD-MM-YYYY') IS NULL,1,0)) FROM raw
+UNION ALL SELECT 'EFFECTIVE_END_DATE','DATE',COUNT(*),COUNT(effective_end_date),
+       SUM(IFF(effective_end_date IS NOT NULL
+               AND TRY_TO_DATE(effective_end_date,'DD-MM-YYYY') IS NULL,1,0)) FROM raw
+ORDER BY uncastable DESC, column_name;
+
+/* Recorded result for store_master_3_datatypechange...csv:
+     FLOOR_AREA_SQFT       NUMBER  5  5  2   <- ONLY real failure
+     ANNUAL_RENT_USD       NUMBER  5  5  0
+     EFFECTIVE_START_DATE  DATE    5  5  0
+     EFFECTIVE_END_DATE    DATE    5  5  0
+     LATITUDE              NUMBER  5  5  0
+     LONGITUDE             NUMBER  5  5  0
+     STORE_OPEN_DATE       DATE    5  5  0
+
+   Any uncastable > 0 means a plain COPY into the typed target WILL fail with
+   ABORT_STATEMENT. Route that file through the quarantine pattern in
+   11_load_file4_type_drift.sql - do NOT reach for ON_ERROR = CONTINUE, which
+   converts a visible failure into silent row loss.                           */

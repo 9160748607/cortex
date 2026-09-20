@@ -27,7 +27,8 @@ $ErrorActionPreference = 'Continue'
 $files = @(
   'store_master.csv',                     # 22 cols - baseline
   'store_master_1.csv',                   # 23 cols - additive drift   (+Status)
-  'store_master_2_deleted_columns.csv'    # 17 cols - subtractive drift (-6 cols)
+  'store_master_2_deleted_columns.csv',   # 17 cols - subtractive drift (-6 cols)
+  'store_master_3_datatypechange_numberdatasendingtextinafile.csv'  # 23 cols - TYPE drift ('testing' in floor_area_sqft)
 )
 
 Write-Host "Source     : $SourceDir"

@@ -1,9 +1,17 @@
-# Schema Drift & Schema Evolution — Store Master
+﻿# Schema Drift & Schema Evolution — Store Master
 
 End-to-end demonstration of **schema drift detection** and **Snowflake schema evolution**, from source files on disk through to a unified loaded table.
 
 **Target:** `ANALYSIS_DB.DATA_MIGRATION.STORE_MASTER`
-**Source:** `C:\Users\X1Carbon\Music\store-master-testing` (3 CSVs, never modified)
+**Source:** `C:\Users\X1Carbon\Music\store-master-testing` (4 CSVs, never modified)
+
+All **three** categories of drift are demonstrated against one target table:
+
+| Category | File | Outcome | Evolution handles it? |
+|---|---|---|---|
+| **Additive** | `store_master_1.csv` | Table grows 26 → 27 columns | **Yes** |
+| **Subtractive** | `..._deleted_columns.csv` | Load succeeds, 6 columns silently NULLed | **No** |
+| **Type** | `..._datatypechange...csv` | **Load rejected outright** | **No** |
 
 ```
 Source files → Schema detection → Drift identification → Schema evolution → Unified target → Load → Validation
@@ -13,7 +21,7 @@ Source files → Schema detection → Drift identification → Schema evolution 
 
 | # | Script | Purpose |
 |---|---|---|
-| — | `cli/upload_to_stage.ps1` | PUT the 3 CSVs to the internal stage |
+| — | `cli/upload_to_stage.ps1` | PUT all 4 CSVs to the internal stage |
 | 01 | `sql/01_create_objects.sql` | Database, schema, 3 file formats, stage |
 | 02 | `sql/02_schema_detection.sql` | `INFER_SCHEMA` **per file**, type-conversion probes |
 | 03 | `sql/03_drift_analysis.sql` | Reusable two-file schema diff + recorded findings |
@@ -22,37 +30,39 @@ Source files → Schema detection → Drift identification → Schema evolution 
 | 06 | `sql/06_load_file2_additive_evolution.sql` | Load file 2 — **evolution fires** |
 | 07 | `sql/07_load_file3_subtractive_drift.sql` | Load file 3 — **no evolution, silent degradation** |
 | 08 | `sql/08_validation.sql` | Structure, counts, NULL matrix, samples |
-| 09 | `sql/09_drift_detection_guard.sql` | Pre-load gate (run *before* each COPY) |
+| 09 | `sql/09_drift_detection_guard.sql` | Pre-load gate (run *before* each COPY) — **use 9.5** |
 | 10 | `sql/10_idempotent_merge_fix.sql` | MERGE + de-dup remediation — **not yet executed** |
+| 11 | `sql/11_load_file4_type_drift.sql` | Load file 4 — **COPY rejected**, quarantine + MERGE |
 
-Order matters: 01 → 02 → 03 → 04 → 05 → 06 → 07. Scripts 05–07 must run in sequence, since each demonstrates a different state transition of the same table.
+Order matters: 01 → 02 → 03 → 04 → 05 → 06 → 07 → 11. Loads 05–07 and 11 must run in sequence, since each demonstrates a different state transition of the same table.
 
 ## Source schema comparison
 
-| Column | File 1 `store_master.csv` | File 2 `store_master_1.csv` | File 3 `..._deleted_columns.csv` |
-|---|---|---|---|
-| store_code, store_name, country_code, region_code, tax_jurisdiction_code | TEXT | TEXT | TEXT |
-| **format_code** | TEXT | TEXT | **absent** |
-| **city** | TEXT | TEXT | **absent** |
-| **state_code** | TEXT | TEXT | **absent** |
-| **postal_code** | **TEXT** | **NUMBER(5,0)** | **absent** |
-| **address_line1** | TEXT | TEXT | **absent** |
-| **latitude** | NUMBER(8,6) | NUMBER(8,6) | **absent** |
-| longitude | NUMBER(9,6) | NUMBER(9,6) | NUMBER(9,6) |
-| **store_open_date** | **DATE** | **TEXT** | **TEXT** |
-| store_close_date | TEXT (empty) | TEXT (empty) | TEXT (empty) |
-| lifecycle_status, floor_area_sqft, annual_rent_usd, is_active | same | same | same |
-| **effective_start_date** | **DATE** | **TEXT** | **TEXT** |
-| **effective_end_date** | **DATE** | **TEXT** | **TEXT** |
-| **created_at** | **TIMESTAMP_NTZ** | **TEXT** | **TEXT** |
-| source_system | TEXT | TEXT | TEXT |
-| **Status** | **absent** | **BOOLEAN** | **BOOLEAN** |
-| **Column count** | **22** | **23** | **17** |
-| **Rows** | 121 | 5 | 5 |
+| Column | File 1 `store_master.csv` | File 2 `store_master_1.csv` | File 3 `..._deleted_columns.csv` | File 4 `..._datatypechange...csv` |
+|---|---|---|---|---|
+| store_code, store_name, country_code, region_code, tax_jurisdiction_code | TEXT | TEXT | TEXT | TEXT |
+| **format_code** | TEXT | TEXT | **absent** | TEXT |
+| **city** | TEXT | TEXT | **absent** | TEXT |
+| **state_code** | TEXT | TEXT | **absent** | TEXT |
+| **postal_code** | **TEXT** | **NUMBER(5,0)** | **absent** | **NUMBER(5,0)** |
+| **address_line1** | TEXT | TEXT | **absent** | TEXT |
+| **latitude** | NUMBER(8,6) | NUMBER(8,6) | **absent** | NUMBER(8,6) |
+| longitude | NUMBER(9,6) | NUMBER(9,6) | NUMBER(9,6) | NUMBER(9,6) |
+| **store_open_date** | **DATE** | **TEXT** | **TEXT** | **TEXT** |
+| store_close_date | TEXT (empty) | TEXT (empty) | TEXT (empty) | TEXT (empty) |
+| lifecycle_status, annual_rent_usd, is_active | same | same | same | same |
+| **floor_area_sqft** | **NUMBER(5,0)** | **NUMBER(5,0)** | **NUMBER(5,0)** | **TEXT** holds `testing` |
+| **effective_start_date** | **DATE** | **TEXT** | **TEXT** | **TEXT** |
+| **effective_end_date** | **DATE** | **TEXT** | **TEXT** | **TEXT** |
+| **created_at** | **TIMESTAMP_NTZ** | **TEXT** | **TEXT** | **TEXT** |
+| source_system | TEXT | TEXT | TEXT | TEXT |
+| **Status** | **absent** | **BOOLEAN** | **BOOLEAN** | **BOOLEAN** |
+| **Column count** | **22** | **23** | **17** | **23** |
+| **Rows** | 121 | 5 | 5 | 5 |
 
 ## Drift analysis
 
-Two independent kinds of drift are present, and **only one is solved by schema evolution.**
+Three independent kinds of drift are present, and **only one is solved by schema evolution.**
 
 ### A. Structural drift
 
@@ -60,6 +70,30 @@ Two independent kinds of drift are present, and **only one is solved by schema e
 |---|---|---|---|
 | **Additive** | File 2 adds `Status` | Table grows 26 → 27 columns automatically | **Yes** |
 | **Subtractive** | File 3 drops 6 columns | Table unchanged; values silently NULL | **No** |
+
+File 4 has **no** structural drift — its column list is identical to file 2.
+
+### A2. Type drift inside a column — file 4
+
+| Column | Every prior file | File 4 | Result |
+|---|---|---|---|
+| `floor_area_sqft` | `NUMBER` | `TEXT` — `testing` on 2 of 5 rows | **COPY rejected** |
+
+```
+Numeric value 'testing' is not recognized
+Row 1, column "STORE_MASTER"["FLOOR_AREA_SQFT":16]
+```
+
+Snowflake did **not** widen the column to accommodate the bad value. Evolution adds columns; it does not retype them. Verified after the failure: 131 rows, 29 columns, `FLOOR_AREA_SQFT` still `NUMBER`, **0 rows loaded** — `COPY` is atomic per file, so the 3 good rows did not slip in with the 2 bad ones.
+
+This is the **least** insidious category precisely because it fails loudly. The two tempting shortcuts are both traps:
+
+| Shortcut | Why it's wrong |
+|---|---|
+| `ON_ERROR = CONTINUE` | Loads 3 rows, silently discards 2 — converts a visible failure into invisible data loss |
+| `ALTER … TO VARCHAR` | Surrenders numeric typing on 121 good rows to accommodate 2 bad values — lets corruption set the schema |
+
+The implemented fix keeps the target strongly typed and loses nothing: **all-text landing → `TRY_TO_*` validation → good rows `MERGE`, bad rows quarantined with their raw value.**
 
 ### B. Type / representation drift — 5 shared columns
 
@@ -115,8 +149,11 @@ MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
 | 1 | `store_master.csv` | 26 → 26 | 121 | No — file matches table |
 | 2 | `store_master_1.csv` | **26 → 27** | 126 | **Yes — `STATUS BOOLEAN` added** |
 | 3 | `..._deleted_columns.csv` | **29 → 29** | 131 | **No — 6 columns silently NULLed** |
+| 4 | `..._datatypechange...csv` | **29 → 29** | **131 — rejected** | **No — COPY failed on type** |
 
-All loads: zero errors. Final state **131 rows, 29 columns, 3 source files**.
+Loads 1–3: zero errors. Load 4 rejected by design, then remediated via quarantine + `MERGE` (0 inserted, 6 updated, 2 quarantined).
+
+Final state: **131 rows, 126 distinct keys, 29 columns, 2 quarantined rows.**
 
 **NULL matrix** — the drift evidence:
 
@@ -140,7 +177,11 @@ Date normalisation verified across both conventions: `01-09-2017` → `2017-09-0
 
 **4. Evolved columns inherit precision from the file that introduced them.** A future-column test added `EMPLOYEE_COUNT` as `NUMBER(2,0)` — inferred from a 2-row sample, giving a ceiling of **99**. Evolution can silently install a type too narrow for real data. Evolved columns need a precision review; they are not free.
 
-## Handling a fourth file with new columns
+**5. The `9.3` type-drift guard over-reports — use `9.5` instead.** Comparing `INFER_SCHEMA`'s guess to the declared type ignores the file format's `DATE_FORMAT`, so on file 4 it flagged **five** "blocking" columns when only **one** was real (`FLOOR_AREA_SQFT`); the four date columns convert perfectly. A guard that cries wolf four times in five gets muted. `9.5` probes actual values with `TRY_TO_*` and returns exactly the one genuine failure.
+
+**6. `MERGE` on file 4 reported 6 updated, not 3** — because issue 1 is unresolved and each key still has two rows. It *repaired* the degraded twins (back-filling `city`, `postal_code`, `latitude` that file 3 dropped), but the duplicates remain. Once de-duplicated, that count should read 3.
+
+## Handling a future file with new columns
 
 Demonstrated live, not theorised: a 25-column test file adding `manager_name` and `employee_count` was loaded with the **identical COPY** — no `ALTER TABLE`, no recreate. The table grew 27 → 29 columns, new rows populated them, all 126 existing rows got NULL, and prior data was untouched. The test rows were then deleted; **the columns persist** (evolution is not reversible by `DELETE`).
 
@@ -149,9 +190,9 @@ So the pipeline is **additively future-proof**. It will **not** automatically ha
 - **Renamed** columns — arrive as a new column while the old one silently goes NULL
 - **Removed** columns — no error, no alert (this is file 3)
 - **Narrowed precision** on an evolved column
-- **Incompatible type changes** on an existing column
+- **Incompatible type changes** on an existing column — the load fails outright (this is file 4)
 
-Those need the guard in `09_drift_detection_guard.sql`, not evolution.
+Those need the guard in `09_drift_detection_guard.sql` (section 9.5) and the quarantine pattern in `11_load_file4_type_drift.sql`, not evolution.
 
 ## Interview summary
 
@@ -159,7 +200,7 @@ Those need the guard in `09_drift_detection_guard.sql`, not evolution.
 >
 > In Snowflake you get it with `ENABLE_SCHEMA_EVOLUTION = TRUE` plus `COPY … MATCH_BY_COLUMN_NAME`, which for CSV needs `PARSE_HEADER = TRUE` — and you must set `ERROR_ON_COLUMN_COUNT_MISMATCH = FALSE`, or the load fails before matching is even attempted. Match-by-name also NULL-fills columns a file omits.
 >
-> The trap is assuming evolution solves all drift. It is **additive-only**. In this dataset it handled the added `Status` column perfectly and did nothing at all for six *deleted* columns — the load succeeded silently, which is the more dangerous outcome, because additive drift announces itself by changing the table while subtractive drift announces nothing.
+> The trap is assuming evolution solves all drift. It is **additive-only**. Across four files I saw all three outcomes: it handled the added `Status` column perfectly; it did nothing for six *deleted* columns and the load succeeded silently; and when a numeric column arrived carrying the string `testing` it refused the load entirely rather than widening the column. Ranked by danger, the silent one is worst — additive drift announces itself by changing the table, type drift announces itself by failing, and subtractive drift announces nothing at all.
 >
 > And the harder drift here wasn't structural at all: it was in the 22 columns all files shared — one dated `2017-09-01`, another `01-09-2017`; one preserved zip `08759`, another turned it into `8759`; one had a real timestamp, another a corrupted `21:50.4`. No amount of evolution fixes that. It's resolved by per-file `DATE_FORMAT`, typing zips as VARCHAR, and deciding where to preserve raw text rather than destroy evidence.
 >
