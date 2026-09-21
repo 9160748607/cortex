@@ -7,8 +7,9 @@
 | Script | Table | Rows | Refresh mode |
 |---|---|---|---|
 | `V5.1.1` | `SILVER.sv_region_master` | 5 | INCREMENTAL, verified |
+| `V5.1.2` | `SILVER.sv_currency_master` | 27 | INCREMENTAL, verified |
 
-## Patterns established by V5.1.1 (reuse for the remaining 12 tables)
+## Patterns established by V5.1.1 (reuse for the remaining 11 tables)
 
 - **De-duplicate with `QUALIFY ROW_NUMBER()`, never `DISTINCT` or `GROUP BY`.**
   `ROW_NUMBER()` is incrementally supported; the other two are only partial and
@@ -83,3 +84,14 @@ V5.1.2__create_silver_product_dynamic_tables.sql
 V5.1.3__create_silver_master_dynamic_tables.sql
 V5.1.4__create_silver_sales_dynamic_tables.sql
 ```
+
+## Carried-forward control from V5.1.2
+
+`sv_currency_master.minor_unit` is the money rounding contract (0 for JPY/KRW,
+2 for the rest). It detected **8,471 rows** in `br_sales_header` holding decimal
+amounts in currencies that cannot represent them - 6,767 JPY and 1,704 KRW. The
+producer generated every amount on a USD scale and relabelled the currency.
+
+Fixing that is the **sales** layer's job, not currency's. When the sales silver
+and gold tables are built, join `minor_unit` in and either `ROUND()` the amounts
+to it or raise a DQ flag. The detection query is at the bottom of `V5.1.2`.
