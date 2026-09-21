@@ -1,6 +1,32 @@
-# 05_silver — cleaned & curated zone
+﻿# 05_silver — cleaned & curated zone
 
-**Status: scaffold.** Blocked on the same CSV column definitions as `04_bronze`.
+**Status: in progress.** First table delivered: `V5.1.1__create_silver_region_master.sql`.
+
+## Delivered
+
+| Script | Table | Rows | Refresh mode |
+|---|---|---|---|
+| `V5.1.1` | `SILVER.sv_region_master` | 5 | INCREMENTAL, verified |
+
+## Patterns established by V5.1.1 (reuse for the remaining 12 tables)
+
+- **De-duplicate with `QUALIFY ROW_NUMBER()`, never `DISTINCT` or `GROUP BY`.**
+  `ROW_NUMBER()` is incrementally supported; the other two are only partial and
+  risk forcing FULL refresh. Keep `QUALIFY` top-level and put the partition key
+  in the SELECT list.
+- **Make the survivor ordering deterministic**, ending in
+  `(__file_name, __row_number)` which is unique per bronze row. A
+  non-deterministic tie-break lets the winner change on every refresh.
+- **Hard-reject only unusable rows** (null/blank business key). Flag everything
+  else in `dq_issue_flags` rather than dropping it.
+- **Carry the three bronze technical columns forward unchanged**, and add
+  `__bronze_row_count` as the duplicate-monitoring hook.
+- **Never put `CURRENT_TIMESTAMP()` / `CURRENT_DATE()` in the projection** - they
+  are allowed in filters only; in a SELECT list they force FULL refresh. This
+  rules out `is_current` and any `__silver_loaded_at` column.
+- **`SEQ*()` sequences do not work in dynamic tables at all** - relevant to gold,
+  where the 6 sequences from `V3.1.3` cannot be used.
+- **Tag every table** with `MEDALLION_LAYER` (architectural note 6).
 
 ## Rules this folder must implement
 
