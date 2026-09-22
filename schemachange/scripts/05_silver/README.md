@@ -1,8 +1,8 @@
 ﻿# 05_silver — cleaned & curated zone
 
-**Status: in progress. 9 of 13 tables delivered** — the country-master group
-(V5.1.1 – V5.1.4) and the product-master group (V5.1.5 – V5.1.9) are complete.
-Remaining: store, customer, sales header, sales item.
+**Status: in progress. 10 of 13 tables delivered** — the country-master group
+(V5.1.1 – V5.1.4), the product-master group (V5.1.5 – V5.1.9) and customer
+master (V5.1.10) are complete. Remaining: store, sales header, sales item.
 
 ## Delivered
 
@@ -17,6 +17,7 @@ Remaining: store, customer, sales header, sales item.
 | `V5.1.7` | `SILVER.sv_product_model_master` | 111 | INCREMENTAL, verified |
 | `V5.1.8` | `SILVER.sv_product_sku_master` | 650 | INCREMENTAL, verified |
 | `V5.1.9` | `SILVER.sv_product_country_availability` | 22,750 | INCREMENTAL, verified |
+| `V5.1.10` | `SILVER.sv_customer_master` | 31,350 | INCREMENTAL, verified |
 
 ## Patterns established by V5.1.1 (reuse for the remaining tables)
 
@@ -90,8 +91,7 @@ one-script-per-group sketch, which the delivered work outgrew — a single scrip
 per table keeps each entity's DQ reasoning with its DDL):
 
 ```
-V5.1.10__create_silver_store_master.sql
-V5.1.11__create_silver_customer_master.sql
+V5.1.11__create_silver_store_master.sql
 V5.1.12__create_silver_sales_header.sql
 V5.1.13__create_silver_sales_item.sql
 ```
@@ -227,3 +227,130 @@ has no physical SKU, so it has no product category. Do **not** reconcile
 `sv_product_category_master.reporting_segment` (4 values, segments PRODUCTS)
 against `sv_country_master.apple_fiscal_segment` (5 values, segments
 GEOGRAPHIES) - they share a name and nothing else, and the gap is permanent.
+
+## Customer master complete (V5.1.10) — first table with personal data
+
+31,350 rows, INCREMENTAL, tagged, zero Snowflake recommendations, zero duplicate
+keys, zero FK orphans. **24,713 rows carry DQ flags** — by far the most in the
+layer, and every one is a real finding rather than a loading artefact.
+
+`customer_id` and `customer_number` are **both** unique (31,350 distinct each),
+so the table has two candidate keys. `customer_id` is the business key.
+
+### OUTSTANDING GOVERNANCE GAP — masking policies do not exist yet
+
+Nine columns are personal data and all nine are 100% populated:
+
+`first_name` `last_name` `full_name` `date_of_birth` `email` `phone_number`
+`street_address` `city` `postal_code`
+
+Directly identifying: `email`, `phone_number`, `full_name`, `street_address`.
+**Quasi-identifying:** `date_of_birth` + `postal_code` + `gender` re-identify an
+individual even with names removed, so those must be in scope too — not waved
+through as harmless geography.
+
+No policy is applied in V5.1.10 **by design**: per the architectural rule,
+masking policies live in `GOVERNANCE` and are only *attached* in `SALES_DEV`.
+The policies have not been written, so this is recorded as an open gap rather
+than half-solved. Two notes for whoever writes them:
+
+- `full_name` is exactly `first_name || ' ' || last_name` on all 31,350 rows
+  (verified). It **must** be masked in step with the two parts, or masking either
+  is pointless. It is kept rather than dropped because a policy needs a single
+  column to govern.
+- `date_of_birth` wants a *generalising* policy (year, or an age band), not full
+  redaction — age is analytically useful, an exact birth date is not.
+
+**1,051 of these customers are in GDPR countries**, which makes this a legal
+requirement rather than a preference.
+
+### THE COMPLIANCE FINDING — 3,515 customers were minors at registration
+
+| Threshold | Rows | Why this threshold |
+|---|---|---|
+| under 18 | **3,515** | general contractual capacity |
+| under 16 | 2,360 | GDPR Art. 8 default for a child's own consent |
+| under 13 | **698** | COPPA line (US) |
+
+**The youngest was 11.** 1,051 of the under-18s are in GDPR countries. Only 360
+of the 3,515 are in the Education segment, so this is *not* explained away as
+school accounts.
+
+Flagged at **two** thresholds deliberately — 13 and 18 carry different legal
+obligations, and a single "is a minor" flag would collapse three regimes into
+one. **Flagged, never rejected:** deleting the rows would destroy the evidence
+the account exists, orphan its sales, and make the compliance position harder to
+establish. This needs a governance decision (consent verification, erasure, or
+source-side age-gating) and needs the rows visible to make it.
+
+Age is computed **at registration**, not today — a current-age calculation needs
+`CURRENT_DATE()`, which would force FULL refresh. Age at registration is the
+compliance-relevant figure anyway, since consent is given at sign-up.
+
+### Four deliberate divergences from the layer pattern
+
+**1. `customer_id` is NOT upper-cased.** It is a lowercase UUID (RFC 4122
+canonical form), and `br_sales_header.customer_id` is lowercase too. Applying the
+usual `UPPER(TRIM(...))` would *mutate* all 31,350 values and silently orphan all
+**77,155** sales rows. The rule exists to stop casing drift breaking joins; here
+applying it mechanically would *create* that exact failure. Treatment is `TRIM`
+only. `customer_number` is still upper-cased — it is a structured business code.
+
+**2. `country_name` and `region` are dropped.** Both are provably redundant
+against the conformed dimension — **0 mismatches / 31,350** on each, and
+`region`'s five values are exactly `sv_region_master`'s region codes. Keeping them
+would store the same fact twice with no way to enforce agreement. `country_code`
+reaches both in one join. Bronze remains the faithful record.
+
+`preferred_language` is **kept** despite also matching the country default on
+every row: a country *has* a primary language, a customer *chooses* one, and
+those legitimately diverge. It carries no independent signal today — noted so
+nobody mistakes it for real per-customer preference.
+
+**3. `loyalty_tier = 'None'` is rewritten to NULL** — 15,641 rows (49.9%) held the
+four-character *string* `'None'`, a Python `None` serialised into CSV. Cleansed
+via `NULLIF`, **not flagged**: a flag on half the table says nothing (the 100%
+rule), and leaving it would mean the first consumer who writes `IS NOT NULL`
+instead of `<> 'None'` gets a silently wrong answer. NULL here means *not
+enrolled*, which is a legitimate state, not missing data.
+
+**4. Survivor ordering now leads with `updated_at`** — the first table in the
+layer to have it. It is populated on every row and differs from `created_at` on
+every row, so it is the true recency signal; `created_at` is demoted to a
+tie-break. Ordering by `created_at` first would pick the oldest-edited version of
+a re-delivered customer.
+
+### Two carry-forward items
+
+**1. Email is NOT an identity key — never de-duplicate on it.** 31,350 rows hold
+only **30,106** distinct addresses; 1,056 are shared across 2,300 rows, up to 5
+each. Investigated before deciding, and the evidence inverts the obvious reading:
+**1,006 of the 1,056 shared addresses belong to different people** (different
+names) and 756 span different countries, while testing for genuine duplicates
+(same first name + last name + DOB) returns **zero** groups. These are distinct
+individuals colliding on a generated address, not duplicate records. No row-level
+flag is raised — sharing is a property of a *group*, so it is a set-level
+assertion per the V5.1.7 rule, and flagging all 2,300 would imply each is
+defective, which the name evidence contradicts.
+
+**2. `phone_number` is not normalised, and no digits-only variant was derived.**
+23,874 rows (76.2%) are flagged `PHONE_NOT_E164`. Four incompatible shapes
+coexist:
+
+| Shape | Rows | Example |
+|---|---|---|
+| digits/separators only | 15,924 | `0 2061 8330` |
+| contains letters (extensions) | 6,660 | `(010)034-9469x052` |
+| leading `+` | 6,177 | `+04(4)9130337535` |
+| parenthesised | 2,589 | `(+358) 131281138` |
+
+`REGEXP_REPLACE(phone_number,'[^0-9]','')` is deterministic and incremental-safe,
+so it would *work* — but 6,660 values carry an **extension**, and stripping
+non-digits fuses it onto the subscriber number, producing a plausible-looking
+number that dials the wrong place. **A visibly messy value is safer than an
+invisibly wrong one.** Real E.164 normalisation needs the country dialling code
+and extension parsing — a gold-layer or utility job, not a REGEXP in a dimension.
+
+Also note `acquisition_year` duplicates `YEAR(registration_date)` with zero
+mismatches, and `customer_type` is `'NEW'` on 100% of rows — uniform, so no flag
+(the 100% rule again). Both are asserted in validation.
