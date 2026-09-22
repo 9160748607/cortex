@@ -93,7 +93,7 @@
    SUCCEEDED, refresh_mode_reason empty, ZERO recommendations, 10 rows /
    10 distinct keys, ZERO dq flags, all __bronze_row_count = 1.
 
-   Depends on: V2.1.2 (SILVER schema), V4.3.1/V4.3.2 (bronze product category),
+   Depends on: V2.1.2 (SILVER schema), V4.4.1/V4.4.2 (bronze product category),
                V1.1.4 (MEDALLION_LAYER tag).
    --------------------------------------------------------------------------- */
 

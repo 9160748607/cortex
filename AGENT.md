@@ -1,0 +1,332 @@
+# AGENT.md — orientation for a new session
+
+Read this first. It maps the repository, records the rules that govern it, and
+points at the documents that hold the detail. It is a **router**, not a copy: the
+authoritative reasoning lives in the files it links to, and this file should stay
+short enough to read in full before touching anything.
+
+**Project:** Apple Inc sales analytics on Snowflake — a medallion architecture
+(bronze → silver → gold) managed entirely through
+[schemachange](https://github.com/Snowflake-Labs/schemachange).
+
+---
+
+## 1. Standing rules — do not violate without being asked
+
+| # | Rule |
+|---|---|
+| 1 | **Commit and push to `dev_branch` only.** Never push to `main` or `qa_branch`. Promotion happens by PR: `dev_branch → qa_branch → main`. |
+| 2 | **`CREATE ... IF NOT EXISTS`, never `CREATE OR REPLACE`** and never destructive DDL. One documented exception: the gold semantic view — reasoning in `schemachange/scripts/06_gold/README.md`. |
+| 3 | **Tags, masking policies and all governance objects live only in the `GOVERNANCE` database.** Environment databases *attach* them; they never define them. |
+| 4 | **Dev and QA objects are `TRANSIENT`** (no fail-safe cost). Driven by the `object_type` var, empty in prod. Never hard-code `TRANSIENT` in a script. |
+| 5 | **Every object gets a short, meaningful `COMMENT`.** |
+| 6 | **Data-storing objects carry chargeback tags** (`MEDALLION_LAYER`, plus DB-level inherited tags). |
+| 7 | **Bronze → silver movement uses dynamic tables only** — never `INSERT`, `MERGE`, or a task-driven procedure. |
+| 8 | **Never hard-code a database name in a script.** Use the Jinja vars in §4. |
+
+---
+
+## 2. Where everything is
+
+```
+cortex/
+├── AGENT.md                    <- you are here
+├── SKILL.md                    root skill definition
+├── customer_nagur_skill_testing/SKILL.md
+├── plans/                      session summaries (see §7)
+├── results/                    ad-hoc query output as CSV, not authoritative
+├── sql/                        one-off scratch SQL, superseded by schemachange
+├── schemachange/               ALL managed DDL — the source of truth
+└── schema_evolution_or_drift{,_json,_parquet}/   standalone demos (see §8)
+```
+
+### Documents to read, in priority order
+
+| Document | Why it matters |
+|---|---|
+| `schemachange/README.md` | Deployment mechanics, naming convention, env var matrix, promotion flow. **Read before writing any script.** |
+| `schemachange/scripts/05_silver/README.md` | **The single most valuable file in the repo.** Every DQ convention, every data defect, every rejected rule, and all carry-forward items for gold. |
+| `schemachange/scripts/04_bronze/README.md` | Bronze loading approach, `INFER_SCHEMA` usage, metadata columns. |
+| `schemachange/scripts/06_gold/README.md` | Gold rules and reserved version range. Scaffold — this is the next build. |
+| `schemachange/scripts/07_orchestration/README.md` | Ingest task / stage stream design. Scaffold. |
+| `plans/2026-09-19-session-summary.md` | Earlier session narrative. Historical — trust the script headers over it where they disagree. |
+
+`01_governance/`, `02_foundation/` and `03_common/` have **no README**; their
+scripts are short and self-documenting.
+
+### ⚠️ There is no `data_quality_docs/` folder
+
+It does not exist in this repository, and no file matching `*qual*`, `*dq*` or
+`*doc*` does either. **Do not go looking for it.** The data-quality requirements
+live in two places instead, and both are richer than a separate folder would be:
+
+1. **`schemachange/scripts/05_silver/README.md`** — the consolidated layer-wide
+   view: conventions, the defect register, and what each one blocks downstream.
+2. **The header comment block of each `05_silver/V5.1.*.sql` script** — per-table
+   reasoning. These headers are long on purpose. They record not just what each
+   DQ flag does but **which candidate rules were tested and rejected, and why**,
+   so a future session does not re-implement a rule that was already disproved.
+
+If a `data_quality_docs/` folder is genuinely wanted as a separate artefact, it
+would need to be created and populated — say so rather than assuming it exists.
+
+---
+
+## 3. Current state
+
+**Silver is complete. Gold is the next piece of work.**
+
+| Layer | Folder | State |
+|---|---|---|
+| Governance | `01_governance/` V1.x | Done — `GOVERNANCE` DB, `TAGS` + `SCHEMACHANGE` schemas, 4 tags |
+| Foundation | `02_foundation/` V2.x | Done — `SALES_DEV` + 4 schemas, tags attached |
+| Common | `03_common/` V3.x | Done — 2 CSV file formats, 6 sequences (**note:** `V3.1.2` is an intentional gap) |
+| Bronze | `04_bronze/` V4.x | Done — internal stage, 47 staged files, **13 tables loaded** |
+| Silver | `05_silver/` V5.x | **Done — 13 dynamic tables, all INCREMENTAL, all verified** |
+| Gold | `06_gold/` V6.x | Scaffold only |
+| Orchestration | `07_orchestration/` V7.x | Scaffold only |
+
+Only the **DEV** context (`SALES_DEV`) exists. QA and prod are not built.
+
+### Bronze script numbering — easy to get wrong
+
+Verify against the filesystem before citing one. The order is **not** the order
+the silver scripts were built in:
+
+| Scripts | Domain |
+|---|---|
+| `V4.1.1` | stage |
+| `V4.2.1` / `V4.2.2` | country master |
+| `V4.3.1` / `V4.3.2` | **customer** master |
+| `V4.4.1` / `V4.4.2` | **product** master |
+| `V4.5.1` / `V4.5.2` | **store** master |
+| `V4.6.1` / `V4.6.2` | sales transaction |
+
+### The 13 silver tables
+
+All are `sv_*` dynamic tables in `SALES_DEV.SILVER`, all `TARGET_LAG = DOWNSTREAM`,
+`REFRESH_MODE = INCREMENTAL` (verified, not just requested), `WAREHOUSE = COMPUTE_WH`,
+tagged `MEDALLION_LAYER = 'SILVER'`, **zero Snowflake recommendations across the
+whole layer**.
+
+| Script | Table | Rows | DQ flagged |
+|---|---|---|---|
+| `V5.1.1` | `sv_region_master` | 5 | 0 |
+| `V5.1.2` | `sv_currency_master` | 27 | 0 |
+| `V5.1.3` | `sv_tax_master` | 35 | 0 |
+| `V5.1.4` | `sv_country_master` | 35 | 1 |
+| `V5.1.5` | `sv_product_category_master` | 10 | 0 |
+| `V5.1.6` | `sv_product_family_master` | 43 | 0 |
+| `V5.1.7` | `sv_product_model_master` | 111 | 0 |
+| `V5.1.8` | `sv_product_sku_master` | 650 | 0 |
+| `V5.1.9` | `sv_product_country_availability` | 22,750 | 0 |
+| `V5.1.10` | `sv_customer_master` | 31,350 | **24,713** |
+| `V5.1.11` | `sv_store_master` | 121 | 0 |
+| `V5.1.12` | `sv_sales_header` | 77,155 | 0 |
+| `V5.1.13` | `sv_sales_item` | 77,155 | 0 |
+
+---
+
+## 4. Conventions a new script must follow
+
+**Jinja vars** available in every script (values shown for dev):
+
+| Var | Dev value |
+|---|---|
+| `{{ database }}` | `SALES_DEV` |
+| `{{ governance_database }}` | `GOVERNANCE` |
+| `{{ warehouse }}` | `COMPUTE_WH` |
+| `{{ object_type }}` | `TRANSIENT` (empty in prod) |
+| `{{ env }}` | `DEV` |
+| `{{ retention_days }}`, `{{ cost_center }}`, `{{ chargeback_owner }}` | see config |
+
+**File naming:** `V<version>__<description>.sql`, **two** underscores, version
+unique across the whole project. Each folder owns a reserved range. `R__` =
+repeatable, `A__` = always. Anything else is ignored by schemachange — which is
+how `README.md` and `_reference__*.sql` (client-side `PUT` commands, never
+executed) live safely alongside migrations.
+
+**Script shape** — follow any `05_silver/V5.1.*.sql`:
+1. Long header comment: entity domain, findings, decisions **and rejected
+   alternatives with the measurement that killed them**.
+2. The `CREATE ... IF NOT EXISTS` statement.
+3. `ALTER ... SET TAG` for `MEDALLION_LAYER`.
+4. A `VALIDATION` block of read-only queries, each with its **recorded result**
+   inline as a comment. This is what makes the work re-verifiable.
+
+---
+
+## 5. Dynamic-table rules learned the hard way
+
+These were all discovered by breaking something. Full reasoning in
+`05_silver/README.md`.
+
+- **De-duplicate with `QUALIFY ROW_NUMBER()`** — never `DISTINCT` or `GROUP BY`,
+  which are only partially incremental and risk forcing FULL refresh. Keep
+  `QUALIFY` top-level and put the partition key in the SELECT list.
+- **The `QUALIFY` partition expression must match the projection's exactly.**
+  Mismatch means de-duplicating on a different grain than you return.
+- **Make survivor ordering deterministic**, ending in
+  `(__file_name, __row_number)`. Lead with `updated_at` if the table has one
+  (only `br_customer_master` does).
+- **No non-deterministic function anywhere in the definition** — including
+  *inside* an `IFF`. `CURRENT_TIMESTAMP()` / `CURRENT_DATE()` / `RANDOM()` force
+  FULL refresh. This is why there is no `__silver_loaded_at` column and why all
+  plausibility bounds are **static literals** (`1976`, `2035`, `'1900-01-01'`).
+- **`SEQ*()` sequences do not work in dynamic tables at all.** The 6 sequences
+  from `V3.1.3` are unusable in gold — use hash keys (`SHA1_HEX`) instead.
+- **Always verify `REFRESH_MODE` actually came back `INCREMENTAL`** after
+  creating. Requesting it is not the same as getting it; check
+  `refresh_action` in `DYNAMIC_TABLE_REFRESH_HISTORY` and `refresh_mode_reason`.
+- **No streams on bronze tables** — DTs manage their own change tracking, so a
+  stream is redundant and forces extended retention.
+
+---
+
+## 6. DQ philosophy — the rules that decide whether a flag exists
+
+Applied consistently across all 13 tables. Following them keeps gold coherent;
+ignoring them produces flags nobody trusts.
+
+1. **Hard-reject only what is unusable *as a key*** (null/blank business key).
+   Everything else is flagged, never dropped. Deleting a fact to fix a dimension
+   attribute is never the right trade.
+2. **A flag that fires on 100% (or 0%) of rows is a bug, not a check.** It
+   carries no information and trains readers to ignore the column. Assert
+   uniformity in validation instead, so a future change shows up as a shifted
+   number.
+3. **Row-level flags describe only their own row.** Anything needing a second
+   table — FK existence, cross-level date coherence, childless-parent coverage —
+   is a **set-level assertion** for validation SQL or gold, never a flag. A join
+   in a DT couples its refresh to the joined table.
+4. **No allow-lists on business categorisations.** A new segment, tier, format or
+   payment method is a *business change*, not a defect. NULL is the defect;
+   unfamiliar is news.
+5. **Nullability does not decide whether a flag belongs — semantics do.** For a
+   *measure*, absent is always wrong. For an *open-ended date*, absent is a
+   legitimate state.
+6. **Test a candidate rule before implementing it, and record the ones you
+   reject.** Several plausible rules were killed by measurement (§7). A rule with
+   an 11-in-12 false-positive rate is worse than no rule.
+7. **Prefer a visibly messy value over an invisibly wrong one.** Never "fix" data
+   in a way that produces a plausible-looking but incorrect result.
+8. **Drop denormalised columns only when provably redundant** — measure
+   0 mismatches first — and prove recoverability in validation. Bronze stays the
+   faithful record.
+
+---
+
+## 7. The defect register — read before building gold
+
+Every item is measured, not assumed. Detail in `05_silver/README.md` and the
+relevant script header.
+
+### Blocking issues
+
+| Issue | Impact |
+|---|---|
+| **All amounts are USD-scaled regardless of currency** | Every one of the 27 currencies averages 620–780 `net_total`. Affects **all 77,155 rows**, not just the 8,471 JPY/KRW rows where `minor_unit = 0` makes it detectable. **Do not `ROUND()`** — it yields a type-correct value still wrong by ~150× and destroys the evidence. |
+| **No FX-rate dimension exists** | Cross-currency `SUM(net_total)` runs cleanly and returns a confident, meaningless number. Gold must stay single-currency until one is built. |
+| **`sv_tax_master` is not time-variant** | One row per country, so it cannot express a rate change. Recomputing 2019 tax fails on 5 countries / 5,609 rows — four are real post-2019 rate rises. **The transaction's `total_tax` is authoritative.** Never recompute historical tax from the master. |
+| **Header and item measures are identical (1:1)** | Both total **50,186,627.97**. A naive join summing both returns exactly double **while the row count stays correct**. Build revenue from `sv_sales_item` (lower grain). |
+| **No masking policies exist** | `sv_customer_master` has 9 fully-populated personal-data columns; 1,051 customers are in GDPR countries. Policies belong in `GOVERNANCE` (rule 3) and must be *attached* in silver. |
+
+### Data defects to carry forward
+
+| Defect | Detail |
+|---|---|
+| **38,102 sales rows predate their store's opening** | 61.6% of store-attributed rows; 67 of 121 stores open after the 2019 sales period. Belongs in **gold** (needs a join, per DQ rule 3). Must compare against **each store's own** open date, never a hard-coded year. |
+| **3,515 customers were minors at registration** | 698 under 13 (COPPA), 1,051 minors in GDPR countries, youngest **11**. Needs a governance decision, not a data fix. |
+| **`UK` is not valid ISO 3166-1 alpha-2** | Should be `GB`. Flagged not rejected — 2,400 customers, 5,862 sales and 8 stores depend on it. |
+| **24 sales rows timestamped 2020-01-01** | Timezone spillover. **The gold date dimension must cover 2020-01-01** or they will not join. |
+| **1,056 shared email addresses** | 1,006 belong to *different people*; zero true duplicate persons. **Never use email as an identity key.** |
+| **`phone_number` has 4 incompatible formats** | 76.2% non-E.164. No digits-only variant was derived: 6,660 values carry extensions that stripping would fuse onto the subscriber number. |
+| **`sv_product_country_availability` cannot filter** | Complete 650×35 cartesian, `is_available` TRUE everywhere. Joining it to restrict to "available products" removes zero rows; any effect is fan-out. |
+| **`sv_product_sku_master` has no price** | `price_tier` is an ordinal band. Price-variance baselines must come from the **fact**, per `(sku_code, currency)`. |
+
+### Traps that look like bugs but are not
+
+| Looks wrong | Actually correct |
+|---|---|
+| `tax_jurisdiction_code` orphans all 121 stores | It is **fully derivable** from `country_code` + `state_code` and was never meant to be joined. Resolve tax via `store → sv_country_master.tax_code → sv_tax_master`. No country has >1 tax code, so **no fan-out and no mapping table needed**. |
+| `local_part_number` reused across 2,600 values | Apple part numbers are **region**-scoped. Never crosses a SKU or a region. |
+| Only 4 product reporting segments | Services has no physical SKU. Do **not** reconcile against `sv_country_master.apple_fiscal_segment` (5 *geographic* values) — same name, unrelated meaning. |
+| `effective_start_date` on stores | A **load date** (one value, 2026-04-17), not a business date. Filtering 2019 sales on it returns **zero stores**. Use `store_open_date`. |
+| `effective_end_date = 9999-12-31` | An intentional, *functional* SCD sentinel — preserved deliberately. Unlike the `'None'` string in `loyalty_tier`, which was a serialisation accident and *was* rewritten to NULL. |
+| `discontinue_date` NULL on all 111 models | Open-ended = still sold. Agrees with `lifecycle_status`. |
+| NULL `store_id` on 15,351 sales rows | Exactly the ONLINE channel. An exact partition with `channel_id`. |
+| NULL `state_code` on 39 stores | Those countries do not subdivide for tax. |
+
+### Rejected rules — do not re-implement
+
+| Rule | Why it was killed |
+|---|---|
+| `country_code <> LEFT(iso_alpha3,2)` | 12 hits, **11 valid ISO pairs**. Replaced by an explicit exception list. |
+| `ROUND()` JPY/KRW to `minor_unit` | Hides a ~150× scale error behind a type-correct value. |
+| Flagging only the 8,471 detectable currency rows | Would assert the other 68,684 are sound. |
+| Rent-per-sqft plausibility band | Prime Apple retail genuinely reaches USD 2,000–3,000/sqft; any useful threshold flags real flagships. |
+| `REGEXP_REPLACE` phone to digits | Fuses extensions onto subscriber numbers. |
+| Allow-lists on segment / tier / format / lifecycle | Business changes, not defects. |
+| `YEAR(CURRENT_DATE())` plausibility bounds | Non-deterministic → forces FULL refresh. |
+
+---
+
+## 8. Other things in this repo
+
+**`schema_evolution_or_drift/`, `_json/`, `_parquet/`** — three self-contained
+demonstrations of schema drift (additive, subtractive, type) using Store Master
+data in CSV, JSON and Parquet. Each has a `README.md` and a `COMPLETE_FLOW.sql`
+explaining the column-splitting mechanics for that format. They target
+`ANALYSIS_DB` and are **independent of the medallion pipeline** — do not wire
+them into it. Two findings worth knowing: `INFER_SCHEMA` widens types from small
+samples, and Parquet `INFER_SCHEMA` disagrees with `TYPEOF`.
+
+**`results/`** — CSV exports from ad-hoc queries. Snapshots, not authoritative.
+
+**`sql/01_sales_dev_foundation.sql`** — pre-schemachange scratch work,
+superseded. Do not extend it; add a versioned script instead.
+
+---
+
+## 9. Environment
+
+- **Snowflake connection:** `ysirciu-vg28332` (OAuth). User `NAGUR`, role
+  `ACCOUNTADMIN`.
+- **Warehouses:** `COMPUTE_WH` only. **`WH_DT_XS` does not exist** despite
+  earlier notes claiming it — all silver DTs run on `COMPUTE_WH`, whose
+  `AUTO_SUSPEND` is 600 s and could reasonably be lowered.
+- **Databases:** `GOVERNANCE` (permanent), `SALES_DEV` (transient), `ANALYSIS_DB`
+  (drift demos).
+- **Git:** `git@github.com:9160748607/cortex.git`, local clone
+  `C:\Users\X1Carbon\cortex`, SSH configured. Shell is **Windows PowerShell** —
+  chain with `;` not `&&`, and note `git push` writes to stderr, which PowerShell
+  surfaces as an error even on success.
+
+### Known outstanding items
+
+| Item | Detail |
+|---|---|
+| **`CHANGE_HISTORY_DEV` is empty** | Everything was deployed by executing rendered SQL directly, because the OAuth browser flow cannot complete unattended. Re-run `schemachange deploy` interactively to populate it. All scripts are `IF NOT EXISTS`, so re-applying is harmless. **Do this before the QA promotion.** |
+| Masking policies | Not written. See §7. |
+| FX-rate dimension | Not modelled. Blocks cross-currency revenue. |
+| Type-2 `sv_tax_master` | Needed for historical tax. |
+| QA and prod contexts | Not created. |
+| `COMPUTE_WH` `AUTO_SUSPEND` | 600 s; 60 s would suit DT refreshes better. |
+
+---
+
+## 10. Working agreement
+
+- **Measure before asserting.** Every number in the script headers and in §7 came
+  from a query. Do not restate a claim from memory or from `plans/` without
+  re-checking it — several earlier notes turned out to be wrong (the `WH_DT_XS`
+  warehouse, the tax fan-out claim, the `ROUND()` advice, the bronze script
+  numbers in §3).
+- **Record rejected alternatives, not just decisions.** That is what stops the
+  next session re-litigating settled questions.
+- **Update the folder README and this file when state changes.** A stale pointer
+  is worse than no pointer.
+- **Verify, then report.** For a dynamic table that means: `refresh_action`
+  is `INCREMENTAL`, recommendations are empty, row counts reconcile to bronze,
+  keys are unique, FKs have zero orphans, and the flag distribution is only what
+  you expect.

@@ -97,7 +97,7 @@
    650 distinct keys, ZERO dq flags, all __bronze_row_count = 1, zero orphans
    against sv_product_model_master.
 
-   Depends on: V2.1.2 (SILVER schema), V4.3.1/V4.3.2 (bronze product SKU),
+   Depends on: V2.1.2 (SILVER schema), V4.4.1/V4.4.2 (bronze product SKU),
                V5.1.7 (parent - validation join only),
                V1.1.4 (MEDALLION_LAYER tag).
    --------------------------------------------------------------------------- */

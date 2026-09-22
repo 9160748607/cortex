@@ -245,7 +245,7 @@
    Survivor ordering leads with created_at: unlike br_customer_master (V5.1.10)
    this table has NO updated_at column, so the V5.1.1 ordering applies unchanged.
 
-   Depends on: V2.1.2 (SILVER schema), V4.4.1/V4.4.2 (bronze store master),
+   Depends on: V2.1.2 (SILVER schema), V4.5.1/V4.5.2 (bronze store master),
                V5.1.4 / V5.1.3 / V5.1.1 (validation joins only),
                V1.1.4 (MEDALLION_LAYER tag).
    --------------------------------------------------------------------------- */

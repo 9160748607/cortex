@@ -262,7 +262,7 @@
    in five combinations. Every one is a real finding, not a loading artefact -
    which is why none of the twenty-odd other flags defined below fired.
 
-   Depends on: V2.1.2 (SILVER schema), V4.5.1/V4.5.2 (bronze customer master),
+   Depends on: V2.1.2 (SILVER schema), V4.3.1/V4.3.2 (bronze customer master),
                V5.1.4 (sv_country_master - validation joins only),
                V1.1.4 (MEDALLION_LAYER tag).
    Outstanding: masking policies in GOVERNANCE, to be attached to the nine

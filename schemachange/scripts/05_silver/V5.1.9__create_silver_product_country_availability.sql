@@ -124,7 +124,7 @@
    22,750 distinct composite keys, ZERO dq flags, all __bronze_row_count = 1,
    zero orphans against BOTH sv_product_sku_master and sv_country_master.
 
-   Depends on: V2.1.2 (SILVER schema), V4.3.1/V4.3.2 (bronze availability),
+   Depends on: V2.1.2 (SILVER schema), V4.4.1/V4.4.2 (bronze availability),
                V5.1.8 and V5.1.4 (both parents - validation joins only),
                V1.1.4 (MEDALLION_LAYER tag).
    --------------------------------------------------------------------------- */

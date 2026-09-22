@@ -90,7 +90,7 @@
    43 distinct keys, ZERO dq flags, all __bronze_row_count = 1, zero orphans
    against sv_product_category_master.
 
-   Depends on: V2.1.2 (SILVER schema), V4.3.1/V4.3.2 (bronze product family),
+   Depends on: V2.1.2 (SILVER schema), V4.4.1/V4.4.2 (bronze product family),
                V5.1.5 (parent - required for the validation join),
                V1.1.4 (MEDALLION_LAYER tag).
    --------------------------------------------------------------------------- */

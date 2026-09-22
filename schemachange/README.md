@@ -19,8 +19,8 @@ schemachange/
     ├── 01_governance/    V1.x  governance DB, schemas, tag definitions
     ├── 02_foundation/    V2.x  environment DB, 4 schemas, tag attachment
     ├── 03_common/        V3.x  file formats, sequences
-    ├── 04_bronze/        V4.x  landing stage (done), raw tables (pending)
-    ├── 05_silver/        V5.x  cleaned dynamic tables        (scaffold)
+    ├── 04_bronze/        V4.x  landing stage + 13 raw tables      (done)
+    ├── 05_silver/        V5.x  13 cleaned dynamic tables          (done)
     ├── 06_gold/          V6.x  facts, dims, agg, semantic view (scaffold)
     └── 07_orchestration/ V7.x  ingest task                   (scaffold)
 ```
@@ -131,10 +131,19 @@ and it must be restated in full to change a metric — reasoning in
 
 ## Current status
 
-**Deployed to `SALES_DEV`** — 12 versioned scripts applied and verified:
-`GOVERNANCE` (4 tags, 2 schemas), `SALES_DEV` (transient) with `BRONZE`/`SILVER`/
-`GOLD`/`COMMON`, tags attached at database and schema level, 2 CSV file formats,
-6 sequences, and the `sales_csv_stg` landing stage.
+**Bronze and silver are complete in `SALES_DEV`. Gold is the next build.**
+
+| Layer | Range | State |
+|---|---|---|
+| `01_governance` | V1.x | Done — `GOVERNANCE` DB, 2 schemas, 4 tags |
+| `02_foundation` | V2.x | Done — `SALES_DEV` (transient) + `BRONZE`/`SILVER`/`GOLD`/`COMMON`, tags attached at DB and schema level |
+| `03_common` | V3.x | Done — 2 CSV file formats, 6 sequences (`V3.1.2` is an intentional gap) |
+| `04_bronze` | V4.x | Done — stage, 47 staged files, **13 tables loaded** |
+| `05_silver` | V5.x | **Done — 13 dynamic tables, all INCREMENTAL and verified** |
+| `06_gold` | V6.x | Scaffold |
+| `07_orchestration` | V7.x | Scaffold |
+
+Only the **DEV** context exists; QA and prod are not built.
 
 **Source data staged** — 47 files, 12.27 MB compressed, in
 `@SALES_DEV.BRONZE.sales_csv_stg/initial-load/`:
@@ -150,12 +159,29 @@ and it must be restated in full to change a metric — reasoning in
 Years **2020–2025 are deliberately not staged** for customer and sales. Commands
 used are recorded in `04_bronze/_reference__stage_upload_commands.sql`.
 
-No `COPY INTO` has run — bronze tables do not exist yet.
+### Bronze script numbering
+
+Not in the order the silver layer was built — verify before citing:
+
+| Scripts | Domain |
+|---|---|
+| `V4.1.1` | stage |
+| `V4.2.1` / `V4.2.2` | country master |
+| `V4.3.1` / `V4.3.2` | **customer** master |
+| `V4.4.1` / `V4.4.2` | **product** master |
+| `V4.5.1` / `V4.5.2` | **store** master |
+| `V4.6.1` / `V4.6.2` | sales transaction |
 
 ### Outstanding
 
 | Item | Detail |
 |---|---|
-| `CHANGE_HISTORY_DEV` is empty | Dev was deployed by executing the rendered SQL directly, because the OAuth browser flow cannot complete unattended. Re-run `schemachange deploy` interactively to populate history; all 12 scripts are `IF NOT EXISTS`, so re-applying is harmless. Do this **before** the QA promotion. |
-| Bronze tables (`V4.2.x`) | Now unblocked — files are staged, so `INFER_SCHEMA` can derive structures against `COMMON.ff_csv_infer`. |
-| `05_silver` / `06_gold` / `07_orchestration` | Scaffolds; each folder's README holds the rules and reserved version range. |
+| `CHANGE_HISTORY_DEV` is empty | Dev was deployed by executing the rendered SQL directly, because the OAuth browser flow cannot complete unattended. Re-run `schemachange deploy` interactively to populate history; every script is `IF NOT EXISTS`, so re-applying is harmless. Do this **before** the QA promotion. |
+| Masking policies | `sv_customer_master` holds 9 populated personal-data columns and no policy exists yet. Policies belong in `01_governance/` and are *attached* in silver. |
+| FX-rate dimension | Absent, and it blocks all cross-currency revenue in gold. See `05_silver/README.md`. |
+| Type-2 `sv_tax_master` | One row per country, so historical tax cannot be recomputed. |
+| `06_gold` / `07_orchestration` | Scaffolds; each folder's README holds the rules and reserved range. Note sequences from `V3.1.3` **cannot** be used in dynamic tables — gold needs hash keys. |
+
+For the full data-quality picture — conventions, defect register, and rules that
+were tested and rejected — read `scripts/05_silver/README.md`. Repo-wide
+orientation is in `../AGENT.md`.
