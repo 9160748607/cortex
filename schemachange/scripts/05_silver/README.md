@@ -1,6 +1,8 @@
 ﻿# 05_silver — cleaned & curated zone
 
-**Status: in progress.** First table delivered: `V5.1.1__create_silver_region_master.sql`.
+**Status: in progress. 9 of 13 tables delivered** — the country-master group
+(V5.1.1 – V5.1.4) and the product-master group (V5.1.5 – V5.1.9) are complete.
+Remaining: store, customer, sales header, sales item.
 
 ## Delivered
 
@@ -10,8 +12,13 @@
 | `V5.1.2` | `SILVER.sv_currency_master` | 27 | INCREMENTAL, verified |
 | `V5.1.3` | `SILVER.sv_tax_master` | 35 | INCREMENTAL, verified |
 | `V5.1.4` | `SILVER.sv_country_master` | 35 | INCREMENTAL, verified |
+| `V5.1.5` | `SILVER.sv_product_category_master` | 10 | INCREMENTAL, verified |
+| `V5.1.6` | `SILVER.sv_product_family_master` | 43 | INCREMENTAL, verified |
+| `V5.1.7` | `SILVER.sv_product_model_master` | 111 | INCREMENTAL, verified |
+| `V5.1.8` | `SILVER.sv_product_sku_master` | 650 | INCREMENTAL, verified |
+| `V5.1.9` | `SILVER.sv_product_country_availability` | 22,750 | INCREMENTAL, verified |
 
-## Patterns established by V5.1.1 (reuse for the remaining 9 tables)
+## Patterns established by V5.1.1 (reuse for the remaining tables)
 
 - **De-duplicate with `QUALIFY ROW_NUMBER()`, never `DISTINCT` or `GROUP BY`.**
   `ROW_NUMBER()` is incrementally supported; the other two are only partial and
@@ -76,15 +83,17 @@ FROM   {{ database }}.INFORMATION_SCHEMA.DYNAMIC_TABLES;
 If `refresh_mode` came back `FULL` when `INCREMENTAL` was requested,
 `refresh_mode_reason` names the offending construct.
 
-## Planned scripts
+## Remaining scripts
 
-Reserved version range **V5.x**, one script per source group:
+Reserved version range **V5.x**, one script per table (superseding the earlier
+one-script-per-group sketch, which the delivered work outgrew — a single script
+per table keeps each entity's DQ reasoning with its DDL):
 
 ```
-V5.1.1__create_silver_reference_dynamic_tables.sql
-V5.1.2__create_silver_product_dynamic_tables.sql
-V5.1.3__create_silver_master_dynamic_tables.sql
-V5.1.4__create_silver_sales_dynamic_tables.sql
+V5.1.10__create_silver_store_master.sql
+V5.1.11__create_silver_customer_master.sql
+V5.1.12__create_silver_sales_header.sql
+V5.1.13__create_silver_sales_item.sql
 ```
 
 ## Carried-forward control from V5.1.2
@@ -131,3 +140,90 @@ consistent, so it is reconcilable - but a prefix join **fans out 1->2** for
 countries with multiple tax types. `sv_store_master` needs a mapping table or an
 explicit tax-jurisdiction dimension, not a `LEFT JOIN` returning NULL for every
 store. Control query is at the bottom of `V5.1.3`.
+
+## Product-master group complete (V5.1.5 - V5.1.9)
+
+`category -> family -> model -> sku -> country availability`. All five
+INCREMENTAL and verified, all tagged, **zero Snowflake recommendations**, and
+**zero DQ flags across all 23,564 rows** - the cleanest group in the layer.
+
+| Table | Rows | Key | DQ flagged | Orphans |
+|---|---|---|---|---|
+| `sv_product_category_master` | 10 | `category_code` | 0 | n/a (root) |
+| `sv_product_family_master` | 43 | `family_code` | 0 | 0 |
+| `sv_product_model_master` | 111 | `model_code` | 0 | 0 |
+| `sv_product_sku_master` | 650 | `sku_code` | 0 | 0 |
+| `sv_product_country_availability` | 22,750 | `(sku_code, country_code)` | 0 | 0 both FKs |
+
+Integrity verified end-to-end, not just per table: the four-level product walk
+returns exactly **650** rows and the six-join walk across **both** hierarchies
+(product x geography) returns exactly **22,750**. A lower number would mean a
+broken join; a higher one would mean duplicate keys at a parent level. No
+childless categories, families or models.
+
+### Three conventions this group added to the layer
+
+**1. Static literals instead of `CURRENT_DATE()` in DQ flags.** Plausibility
+bounds on `launch_year` / `launch_date` use `1976` and `2035` literals, never
+`YEAR(CURRENT_DATE())`. The existing rule banned non-deterministic functions from
+the projection; this group establishes that it applies **inside `IFF()` too**, not
+just to selected columns. A date function anywhere in the definition forces FULL
+refresh - too high a price for a DQ flag. The trade-off is explicit: a static
+ceiling needs revising eventually (scheduled, visible) rather than imposing
+unbounded compute on every refresh (unscheduled, invisible).
+
+**2. Row-level flags describe only their own row.** Anything needing a second
+table - FK existence, cross-level date coherence, childless-parent coverage - is a
+**set-level assertion** and lives in validation SQL, never in `dq_issue_flags`.
+Joining a parent into a DT definition would couple its refresh to that parent for
+the sake of an attribute check. This is why every script validates FKs with a
+`LEFT JOIN` *after* creation.
+
+**3. A flag firing on 100% (or 0%) of rows is a bug, not a check.** Both
+`discontinue_date` (NULL on all 111 models) and `is_available` (TRUE on all 22,750
+rows) are deliberately **unflagged**: a universal flag carries no information and
+trains readers to ignore the column. Their uniformity is asserted in validation
+instead, so a future change surfaces as a shifted number rather than 22,750 new
+flags. Note this **diverges** from V5.1.4, where NULL measures *were* folded into
+flags - for a measure, absent is always wrong; for an open-ended date, absent is a
+legitimate business state. Nullability does not decide whether a flag belongs; the
+column's semantics do.
+
+Consistent with this, **no allow-list flags** on `reporting_segment`,
+`lifecycle_status` or `price_tier`. A new segment or tier is a routine business
+change, not a defect - NULL is flagged, unfamiliar is not.
+
+### Four carry-forward items for later layers
+
+**1. `sv_product_sku_master` has no price.** `price_tier` is an ordinal band
+(Premium 306 / Ultra 255 / Standard 89), not a monetary amount - no MSRP, no
+currency. The SKU dimension **cannot value a transaction**. Any price-variance or
+discount analysis must derive its baseline from the sales **fact** (e.g. median
+selling price per `sku_code, currency_code`). This is exactly the assumption a
+gold or BI developer would otherwise make.
+
+**2. `local_part_number` is unique per region, not per country - and that is
+correct.** 22,750 rows carry only **19,500 distinct** part numbers; 2,600 are
+reused across 5,850 rows, max reuse 3. Investigated before deciding: reuse
+**never crosses a SKU** (`reused_across_skus = 0`) and **never crosses a region**
+(`reused_across_regions = 0`, tested by joining through `sv_country_master`). The
+suffixes are Apple's regional codes (`ZD/A`, `EX/A`, `CB/A`...) and Apple part
+numbers are region-scoped by design. **No flag raised** - same precedent as the
+alpha2/alpha3 heuristic discarded in V5.1.4: a candidate rule that has been
+disproved is documented and dropped, not implemented defensively. If either
+number ever becomes non-zero, *that* is a genuine finding.
+
+**3. `sv_product_country_availability` cannot filter anything today.** The grain
+is a complete cartesian product (650 x 35, min = max = 35 countries per SKU) with
+`is_available` TRUE on every row. Joining it to restrict a sales query to
+"available products" removes **zero** rows, and any apparent effect would be
+fan-out rather than filtering. Same class of generated-data artefact as sales
+header:item being exactly 1:1. The table is still worth building: `local_part_
+number` and the local launch/discontinue dates exist nowhere else, and the DT
+needs no change once the source becomes selective.
+
+**4. Only four reporting segments, and Services is correctly absent.** Services
+has no physical SKU, so it has no product category. Do **not** reconcile
+`sv_product_category_master.reporting_segment` (4 values, segments PRODUCTS)
+against `sv_country_master.apple_fiscal_segment` (5 values, segments
+GEOGRAPHIES) - they share a name and nothing else, and the gap is permanent.
