@@ -1,8 +1,9 @@
 ﻿# 05_silver — cleaned & curated zone
 
-**Status: in progress. 10 of 13 tables delivered** — the country-master group
-(V5.1.1 – V5.1.4), the product-master group (V5.1.5 – V5.1.9) and customer
-master (V5.1.10) are complete. Remaining: store, sales header, sales item.
+**Status: in progress. 11 of 13 tables delivered** — the country-master group
+(V5.1.1 – V5.1.4), the product-master group (V5.1.5 – V5.1.9), customer master
+(V5.1.10) and store master (V5.1.11) are complete. Remaining: sales header,
+sales item.
 
 ## Delivered
 
@@ -18,6 +19,7 @@ master (V5.1.10) are complete. Remaining: store, sales header, sales item.
 | `V5.1.8` | `SILVER.sv_product_sku_master` | 650 | INCREMENTAL, verified |
 | `V5.1.9` | `SILVER.sv_product_country_availability` | 22,750 | INCREMENTAL, verified |
 | `V5.1.10` | `SILVER.sv_customer_master` | 31,350 | INCREMENTAL, verified |
+| `V5.1.11` | `SILVER.sv_store_master` | 121 | INCREMENTAL, verified |
 
 ## Patterns established by V5.1.1 (reuse for the remaining tables)
 
@@ -91,7 +93,6 @@ one-script-per-group sketch, which the delivered work outgrew — a single scrip
 per table keeps each entity's DQ reasoning with its DDL):
 
 ```
-V5.1.11__create_silver_store_master.sql
 V5.1.12__create_silver_sales_header.sql
 V5.1.13__create_silver_sales_item.sql
 ```
@@ -132,14 +133,19 @@ valid ISO pairs** (AE/ARE, DK/DNK, KR/KOR ...). An 11-in-12 false-positive rate
 is the same cry-wolf failure as the naive type-drift guard in
 `schema_evolution_or_drift/09` section 9.3.
 
-**2. `br_store_master.tax_jurisdiction_code` does not join to `sv_tax_master`** -
+**2. `br_store_master.tax_jurisdiction_code` does not join to `sv_tax_master`** —
 all **121** store rows are orphans. Store codes are sub-national and omit the
 tax-type token (`AU_ACT_STD`); tax codes are country-level and include it
-(`AU_GST_STD`). 70 distinct store codes vs 35 tax codes. The country prefix is
-consistent, so it is reconcilable - but a prefix join **fans out 1->2** for
-countries with multiple tax types. `sv_store_master` needs a mapping table or an
-explicit tax-jurisdiction dimension, not a `LEFT JOIN` returning NULL for every
-store. Control query is at the bottom of `V5.1.3`.
+(`AU_GST_STD`). 70 distinct store codes vs 35 tax codes.
+
+> **RESOLVED in V5.1.11 — and this note was partly wrong.** It claimed a prefix
+> join "fans out 1→2 for countries with multiple tax types" and that a mapping
+> table or tax-jurisdiction dimension was therefore needed. **No country has more
+> than one tax code** (`max_tax_codes_per_country = 1`, measured), so a
+> country-level join cannot fan out and no mapping table is required. The
+> jurisdiction string does not need parsing either: resolve tax via
+> `store → sv_country_master.country_code → .tax_code → sv_tax_master`, which
+> reaches all 121 stores with zero orphans. See the store-master section below.
 
 ## Product-master group complete (V5.1.5 - V5.1.9)
 
@@ -354,3 +360,115 @@ and extension parsing — a gold-layer or utility job, not a REGEXP in a dimensi
 Also note `acquisition_year` duplicates `YEAR(registration_date)` with zero
 mismatches, and `customer_type` is `'NEW'` on 100% of rows — uniform, so no flag
 (the 100% rule again). Both are asserted in validation.
+
+## Store master complete (V5.1.11) — resolves the V5.1.3 tax question
+
+121 rows, INCREMENTAL, tagged, zero Snowflake recommendations, **zero DQ flags**,
+zero duplicate keys, zero FK orphans against `sv_country_master`. 24 countries
+(not 35 — the estate does not cover every country that has customers), 8 of them
+in the non-ISO `UK` code that V5.1.4 deliberately kept.
+
+`format_code` is MINI 43 / FLG 40 / MALL 38. All 121 stores are open:
+`store_close_date` NULL, `lifecycle_status` ACTIVE and `is_active` TRUE all agree,
+which is why the NULL close date carries no flag (the 100% rule).
+
+### RESOLVED — tax_jurisdiction_code never needed to be joined
+
+The V5.1.3 note is corrected above. Three measurements settle it:
+
+| Check | Result |
+|---|---|
+| tax codes per country in `sv_tax_master` | **exactly 1**, max = 1, none with >1 |
+| jurisdiction prefix vs `country_code` | **0 mismatches / 121** |
+| jurisdiction subdivision vs `state_code` | **0 mismatches / 82** |
+| jurisdiction suffix | `_STD` on **121 / 121** |
+
+The two vocabularies were never the same thing — the store code names the
+**place** (`AU_ACT_STD`), the tax code names the **tax** (`AU_GST_STD`) — which is
+why 70 store values met 35 tax values and matched none.
+
+**The decisive finding: `tax_jurisdiction_code` carries no information at all.**
+Every component already sits in a neighbouring column, and `state_code` is NULL on
+exactly the 39 stores whose code has no middle part. So the correct path is:
+
+```
+store → sv_country_master.country_code → .tax_code → sv_tax_master
+```
+
+Verified: **121 stores resolved, zero orphans, zero fan-out.** No mapping table, no
+tax-jurisdiction dimension, no string parsing. Gold must use this path — parsing
+the string would hard-code a source naming convention to recover a value the model
+already holds.
+
+The column is **kept** rather than dropped (unlike `region_code`), for
+traceability: it is the identifier `RETAIL_OPS` actually uses, so it is what an
+operations analyst will quote. Its redundancy is policed by three flags
+(`TAX_JURIS_COUNTRY_MISMATCH`, `TAX_JURIS_SUBDIVISION_MISMATCH`,
+`TAX_JURIS_UNEXPECTED_SUFFIX`) plus `STATE_JURIS_DISAGREEMENT` — all zero today,
+which is what keeps "derivable" honest rather than aspirational.
+
+### THE HEADLINE DEFECT — 38,102 sales rows predate their store's opening
+
+Discovered here, but it belongs to the **sales fact**:
+
+- **67 of 121 stores (55%)** have a `store_open_date` after 2019-12-31; 83 opened
+  after 2019-01-01; the latest is **2026-04-10**
+- all 77,155 sales rows fall in 2019
+- ⇒ **38,102 sales rows** are attributed to a store that had not yet opened —
+  **61.6% of the 61,804 store-attributed rows** (the other 15,351 have a NULL
+  `store_id` and are the online channel)
+
+`orphan_store_sales = 0`, so every non-null `store_id` does resolve — the keys are
+fine, the *chronology* is not.
+
+**The store rows are not defective and carry no flag for this.** A store that
+opened in 2021 is a valid store; the impossible thing is a 2019 transaction
+pointing at it. Flagging the dimension would blame the wrong table and imply the
+fix is deleting stores — which would delete 61.6% of store-attributed revenue. It
+is also a statement about rows in *another* table, which the V5.1.7 rule assigns
+to set-level validation. **V5.1.12 owns the row-level flag.**
+
+One constraint on that flag: it must compare `transaction_timestamp` to **each
+store's own** `store_open_date` via a join, never a hard-coded `'2019-12-31'`. A
+literal happens to work on this data and silently stops working on any other load.
+
+### Two traps and one rejected rule
+
+**1. `effective_start_date` is a load date, not a business date.** It holds the
+single value `2026-04-17` on all 121 rows (`distinct_eff_starts = 1`) and is later
+than `store_open_date` on all 121. Filtering 2019 sales on
+`effective_start_date <= transaction_date` returns **zero stores** and silently
+zeroes every store-attributed metric. Use `store_open_date` / `store_close_date`
+for temporal work; the `effective_*` pair is SCD mechanics only.
+
+**2. Two sentinels, treated differently — deliberately.** V5.1.10 rewrote the
+string `'None'` to NULL; this script **preserves** `effective_end_date =
+9999-12-31`. `'None'` was a serialisation accident with no semantics that lied
+about its own type and broke `IS NULL`. `9999-12-31` is an intentional, functional
+SCD sentinel that *works*: `WHERE d BETWEEN effective_start_date AND
+effective_end_date` selects the current row, whereas NULL would return no rows.
+The test is not "does it look like a placeholder" but "does it carry correct
+meaning and behave correctly".
+
+**3. Rent per square foot is deliberately not flagged.** Range 30.69 – 3,690.50,
+median **725**, p95 1,654, with 4 stores above 2,000. Prime Apple retail genuinely
+reaches USD 2,000–3,000/sqft, so any threshold low enough to catch a real error
+would also catch legitimate flagships — the cry-wolf failure from V5.1.4. Both
+measures *are* guarded for impossibility (non-positive), and the distribution is
+reported in validation so outliers are judged in context. Note `annual_rent_usd`
+is already USD-denominated, so it is **not** affected by the JPY/KRW scaling
+defect carried forward from V5.1.2.
+
+### Other decisions
+
+- **`region_code` dropped** — provably redundant (0 mismatches / 121 against
+  `sv_country_master`, and its five values are exactly `sv_region_master`'s
+  region codes). Same basis as V5.1.10. Bronze remains the faithful record.
+- **NULL `state_code` on 39 stores is correct**, not missing data — those
+  countries do not subdivide for tax purposes, and they are exactly the 39 with a
+  2-part jurisdiction code. The flag guards *coherence* between the two, not
+  nullability.
+- **`GEO_NULL_ISLAND` is its own flag**, separate from the bounds check: `(0,0)`
+  is *in* range but is the signature of a failed geocode, which a range test
+  cannot see. Zero rows today; all coordinates in range.
+- **No allow-list** on `format_code` or `lifecycle_status`, per V5.1.5/V5.1.6.
