@@ -1,9 +1,14 @@
 ﻿# 05_silver — cleaned & curated zone
 
-**Status: in progress. 11 of 13 tables delivered** — the country-master group
-(V5.1.1 – V5.1.4), the product-master group (V5.1.5 – V5.1.9), customer master
-(V5.1.10) and store master (V5.1.11) are complete. Remaining: sales header,
-sales item.
+**Status: COMPLETE — all 13 tables delivered.** Country-master group
+(V5.1.1 – V5.1.4), product-master group (V5.1.5 – V5.1.9), customer master
+(V5.1.10), store master (V5.1.11) and the two sales facts (V5.1.12 – V5.1.13).
+All 13 are INCREMENTAL and verified, all tagged, **zero Snowflake
+recommendations across the entire layer**.
+
+Two open modelling items block parts of gold: there is **no FX-rate dimension**
+(so no cross-currency revenue) and **`sv_tax_master` is not time-variant** (so no
+historical tax recomputation). Both are detailed in the sales-facts section.
 
 ## Delivered
 
@@ -20,6 +25,8 @@ sales item.
 | `V5.1.9` | `SILVER.sv_product_country_availability` | 22,750 | INCREMENTAL, verified |
 | `V5.1.10` | `SILVER.sv_customer_master` | 31,350 | INCREMENTAL, verified |
 | `V5.1.11` | `SILVER.sv_store_master` | 121 | INCREMENTAL, verified |
+| `V5.1.12` | `SILVER.sv_sales_header` | 77,155 | INCREMENTAL, verified |
+| `V5.1.13` | `SILVER.sv_sales_item` | 77,155 | INCREMENTAL, verified |
 
 ## Patterns established by V5.1.1 (reuse for the remaining tables)
 
@@ -88,14 +95,7 @@ If `refresh_mode` came back `FULL` when `INCREMENTAL` was requested,
 
 ## Remaining scripts
 
-Reserved version range **V5.x**, one script per table (superseding the earlier
-one-script-per-group sketch, which the delivered work outgrew — a single script
-per table keeps each entity's DQ reasoning with its DDL):
-
-```
-V5.1.12__create_silver_sales_header.sql
-V5.1.13__create_silver_sales_item.sql
-```
+None — the layer is complete. Next is `06_gold`.
 
 ## Carried-forward control from V5.1.2
 
@@ -107,6 +107,19 @@ producer generated every amount on a USD scale and relabelled the currency.
 Fixing that is the **sales** layer's job, not currency's. When the sales silver
 and gold tables are built, join `minor_unit` in and either `ROUND()` the amounts
 to it or raise a DQ flag. The detection query is at the bottom of `V5.1.2`.
+
+> **RESOLVED in V5.1.12 — and both suggestions above are withdrawn.** Measuring
+> `AVG(net_total)` across all 27 currencies showed every one landing in **620–780**,
+> which is impossible in real retail. The USD-scaling defect therefore affects
+> **all 77,155 rows**, not 8,471 — JPY and KRW are merely the only currencies whose
+> `minor_unit = 0` makes the error *detectable*. So:
+> - **Do not `ROUND()`.** Rounding JPY 623.51 → 624 yields a type-correct value
+>   still wrong by ~150×, destroying the only visible evidence while fixing
+>   nothing. Strictly worse than leaving it alone.
+> - **Do not flag only the 8,471.** That would assert the other 68,684 are sound.
+>
+> The real consequence is that **cross-currency aggregation is invalid** and cannot
+> be fixed by conversion, because **no FX-rate dimension exists** in this model.
 
 ## Country-master group complete (V5.1.1 - V5.1.4)
 
@@ -472,3 +485,153 @@ defect carried forward from V5.1.2.
   is *in* range but is the signature of a failed geocode, which a range test
   cannot see. Zero rows today; all coordinates in range.
 - **No allow-list** on `format_code` or `lifecycle_status`, per V5.1.5/V5.1.6.
+
+## Sales facts complete (V5.1.12 – V5.1.13) — the layer is finished
+
+The first two fact tables, and an exact 1:1 pair. Both 77,155 rows, INCREMENTAL,
+tagged, **zero Snowflake recommendations, zero DQ flags, zero duplicate keys,
+zero FK orphans on any dimension**.
+
+| Table | Rows | Key | Alternate key | DQ | Orphans |
+|---|---|---|---|---|---|
+| `sv_sales_header` | 77,155 | `transaction_sk` | `transaction_id` | 0 | 0 on customer, country, currency, store |
+| `sv_sales_item` | 77,155 | `transaction_line_id` | `(transaction_sk, line_number)` | 0 | 0 on header, SKU |
+
+### The structure is exact — the problems are values and chronology
+
+Worth stating before the defects, because none of them are structural:
+`net_total = gross_amount − total_discount + total_tax` holds on **all 77,155
+rows** to the cent; `line_total = quantity × unit_price − discount_amount +
+tax_amount` likewise. No negative or null amounts, no non-positive net, no
+discount exceeding gross. `channel_id` and `store_id` form an **exact partition**
+— `store_id` is NULL on precisely the 15,351 ONLINE rows and populated on
+precisely the 61,804 POS rows. Header country matches both the store's and the
+customer's country, and currency matches the country's currency, on every row.
+
+### ⚠️ THE DOUBLE-COUNT TRAP — pick ONE table for revenue
+
+The two tables are an exact bijection, proved four ways: 77,155 = 77,155 rows,
+77,155 distinct `transaction_sk` **in items** (so no transaction has two lines),
+`MIN(line_number) = MAX(line_number) = 1`, and zero headers without an item.
+
+Consequently the header's measures are a **verbatim copy** of the item's —
+verified to the cent, zero exceptions across all four:
+
+```
+header.gross_amount   = quantity * unit_price
+header.total_discount = discount_amount
+header.total_tax      = tax_amount
+header.net_total      = line_total
+```
+
+Both tables total **50,186,627.97**. A naive join summing measures from each
+returns **100,373,255.94** — exactly double — and because the join is 1:1 **the
+row count stays perfectly correct while every amount is wrong.** A defect with no
+symptom is the worst kind, and this one is easy to introduce.
+
+**Build revenue from `sv_sales_item`, not the header.** It is the lower grain, so
+it survives the arrival of a second line unchanged; header-based revenue would
+silently stop matching the sum of its lines.
+
+Measures are kept on **both** tables rather than stripped from one: a header-grain
+total is legitimate in any normal schema and is only redundant because this data
+has one line per transaction — an artefact of generation, the same class as the
+650×35 cartesian in V5.1.9. **Do not build anything that assumes 1:1.**
+
+### Defect 1 — the currency scale is worse than V5.1.2 thought
+
+See the corrected V5.1.2 note above. Every one of the 27 currencies averages
+620–780 `net_total`, so all 77,155 rows are USD-scaled with the currency as a bare
+label. EUR 701 is a plausible basket; the same 675 in INR is ~USD 8 against a real
+~65,000 INR.
+
+**No row-level flag**, for three reasons in order of weight: flagging only the
+8,471 detectable rows would assert the other 68,684 are fine (they are not); the
+`minor_unit` test needs a join, which the V5.1.7 rule assigns to set-level
+validation; and a hard-coded `IN ('JPY','KRW')` is an incomplete ISO 4217
+zero-decimal list. The evidence is reproduced in validation across *all*
+currencies instead.
+
+**Open item: no FX-rate dimension exists.** `SUM(net_total)` across countries runs
+cleanly and returns a confident, meaningless number. Gold must stay
+single-currency until this is built.
+
+### Defect 2 — `sv_tax_master` holds current rates, not 2019 rates
+
+New finding. Recomputing tax as `(gross − discount) × tax_rate` via
+country → `sv_tax_master` matches exactly on most countries and fails on five,
+covering **5,609 rows**:
+
+| tax_code | master rate (today) | effective rate (2019) | rows |
+|---|---|---|---|
+| `CA_GST_STD` | 5.0% | **13.0%** | 3,041 |
+| `BR_ICMS_STD` | 17.0% | 12.0% | 1,033 |
+| `CH_VAT_STD` | 8.1% | 7.7% | 754 |
+| `MY_SST_STD` | 10.0% | 6.0% | 526 |
+| `FI_VAT_STD` | 25.5% | 24.0% | 255 |
+
+**Four of the five are the same story and not a data error.** Finland raised VAT
+to 25.5% in 2024, Switzerland 7.7%→8.1% in Jan 2024, Malaysia SST 6%→10% in 2024.
+In each case the *effective* rate is correct **for 2019** and the master is correct
+**for today**. `sv_tax_master` has one row per country, so it cannot express a rate
+change — it is a current-state dimension wearing temporal clothing
+(`effective_start_date` / `effective_end_date` notwithstanding).
+
+`CA_GST_STD` is different: 5% is **federal GST** while the data charges 13%,
+Ontario's combined **HST**. That is a *grain* mismatch, not temporal — the same
+country-vs-subdivision issue V5.1.11 decoded in `tax_jurisdiction_code`, resurfacing
+on the rate side.
+
+**Rule: `total_tax` as recorded on the transaction is authoritative.** Never
+recompute historical tax from `sv_tax_master`, and **no `TAX_RATE_MISMATCH` flag**
+is raised — flagging 5,609 rows would blame the fact for the dimension's missing
+history. The master remains safe for *current* rate lookups and for `tax_type` /
+inclusive-flag attributes.
+
+**Open item:** making it safe for history means a genuine type-2 dimension with one
+row per (jurisdiction, rate period).
+
+### Defect 3 — 38,102 rows predate their store's opening, and a revised promise
+
+Carried from V5.1.11 and confirmed: **38,102 rows (61.6% of the 61,804
+store-attributed rows)** point at a store that had not yet opened, across 67
+implicated stores.
+
+> **V5.1.11 said "V5.1.12 owns the row-level flag". That is revised.** The check
+> needs `sv_store_master.store_open_date`, i.e. a join — which the V5.1.7 rule
+> assigns to set-level validation, and which would make a 77,155-row fact refresh
+> whenever a 121-row dimension changes. It would also start this silver fact down
+> the path of joining all five dimensions, which is a gold star-schema build, not a
+> silver cleanse. **The check belongs in gold** (or as a DMF on the joined result);
+> the exact SQL is in V5.1.12's validation block. The earlier promise was made
+> before that consequence was thought through.
+
+The V5.1.11 constraint still stands: compare against **each store's own** open date
+via the join, never a hard-coded `'2019-12-31'` — a literal works on this load and
+silently fails on the next.
+
+### Other decisions
+
+- **`category_code` dropped from the item** — provably derivable via
+  sku → model → family → category with **0 unresolved and 0 mismatches / 77,155**.
+  Stronger case than the earlier drops: it is *four* levels away, so it is the
+  column most likely to be used as a shortcut and drift unnoticed.
+- **24 rows timestamped 2020-01-01** (timezone spillover) are **not flagged** —
+  expressing it needs a hard-coded year boundary, and the timestamps are probably
+  correct; only the file-partitioning assumption is naive. **The gold date
+  dimension must cover 2020-01-01** or those 24 rows will fail to join.
+- **`transaction_sk` and `customer_id` are `TRIM`-only** — both lowercase UUIDs, the
+  V5.1.10 trap. An `UPPER()` on either would orphan all 77,155 rows while leaving
+  both tables looking healthy. A mutation check is in both validation blocks.
+- **`line_number` is kept but unflagged** — 1 on 100% of rows (the V5.1.7 rule), yet
+  it is half the alternate key and becomes essential with multi-line transactions.
+- **`sv_sales_item` has no currency column.** An item amount is a bare number, so
+  `AVG(unit_price)` by SKU silently averages 27 currencies. Any price-variance
+  baseline (which V5.1.8 already required from the fact) must be computed per
+  `(sku_code, currency)` — requiring the header join.
+- **Formula checks use a 0.005 tolerance** rather than exact equality. These are
+  `NUMBER` columns so exact would work today, but the tolerance costs nothing,
+  survives a future float-delivering source, and stays tighter than half a cent so
+  it cannot mask a real rounding error.
+- **1,205 zero-tax rows** match exactly between header and item and are legitimate
+  zero-rate jurisdictions (V5.1.3) — not flagged.
