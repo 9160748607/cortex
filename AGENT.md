@@ -79,7 +79,7 @@ would need to be created and populated — say so rather than assuming it exists
 
 ## 3. Current state
 
-**Silver is complete. Gold is the next piece of work.**
+**Silver is complete. Gold is in progress — `dim_country` is the first gold object.**
 
 | Layer | Folder | State |
 |---|---|---|
@@ -88,7 +88,7 @@ would need to be created and populated — say so rather than assuming it exists
 | Common | `03_common/` V3.x | Done — 2 CSV file formats, 6 sequences (**note:** `V3.1.2` is an intentional gap) |
 | Bronze | `04_bronze/` V4.x | Done — internal stage, 47 staged files, **13 tables loaded** |
 | Silver | `05_silver/` V5.x | **Done — 13 dynamic tables, all INCREMENTAL, all verified** |
-| Gold | `06_gold/` V6.x | Scaffold only |
+| Gold | `06_gold/` V6.x | **In progress — `V6.1.1` `dim_country` delivered (35 rows, INCREMENTAL, derived PK)** |
 | Orchestration | `07_orchestration/` V7.x | Scaffold only |
 | Data quality | `08_data_quality/` V8.x | **Done for silver — 31 checks, task created SUSPENDED** |
 
@@ -280,6 +280,10 @@ relevant script header.
 | Allow-lists on segment / tier / format / lifecycle | Business changes, not defects. **Still rejected as silver row-level flags.** Permitted as set-level monitoring in `08_data_quality/V8.1.2` — see DQ rule 4's scoped exception. |
 | `YEAR(CURRENT_DATE())` plausibility bounds | Non-deterministic → forces FULL refresh. |
 | **Data Metric Functions for the DQ checks** | Snowflake's native Data Quality Monitoring is **Enterprise Edition**; this account is `STANDARD`. Measured: `SELECT edition FROM SNOWFLAKE.ORGANIZATION_USAGE.ACCOUNTS WHERE account_locator = CURRENT_ACCOUNT()` → `STANDARD`. Every DMF statement fails with `Unsupported feature 'DATA METRIC FUNCTION'`, as do `SHOW DATA METRIC FUNCTIONS` and `SYSTEM$DATA_METRIC_SCAN`. Hence `08_data_quality` is hand-rolled SQL. **If the account is ever upgraded, replace most of V8.1.2/V8.1.3 with DMF associations** — the mapping is in that folder's README. |
+| **SCD-2 inside a dynamic table** | Impossible, three independent reasons: a DT cannot self-reference to close the prior version; stamping a close date needs `CURRENT_DATE` in the SELECT list, which rule §5 bans; and a DT changes rows **in place**, so history has nowhere to live. `V6.1.1` carries the SCD-2 *column contract* and passes through source intervals instead. True SCD-2 needs stream + task + `MERGE` into a standard table — reserved as `V6.4.x`. |
+| **Declared PK/FK on a dynamic table** | `CREATE DYNAMIC TABLE` has no constraint clause and `ALTER DYNAMIC TABLE` has no `ADD CONSTRAINT`. **But** `QUALIFY ROW_NUMBER() OVER (PARTITION BY <grain>) = 1` makes Snowflake derive a real `SYS_CONSTRAINT_DERIVED_PK` with `rely = true` — verified on `dim_country` via `SHOW UNIQUE KEYS`. So the `QUALIFY` is the constraint mechanism, not just de-duplication; removing it removes the PK. |
+| **Intersecting all four source validity intervals in `dim_country`** | Textbook SCD-2 conformance, catastrophic here. `sv_tax_master.effective_start_date` is `2020-01-01` on all 35 rows but the sales data is 2019, so `GREATEST()` pushes every `valid_from` past the entire fact period. Measured: country-driven validity joins **77,155 of 77,155** sales rows; intersecting all four joins **24** — and those 24 are exactly the timezone-spillover rows below. A 99.97% silent loss that returns a clean, nearly-empty answer. |
+| `HASH()` for gold surrogate keys | Superseded by `SHA1_HEX`. `HASH()` returns a signed 64-bit number — non-trivial collision probability as dimensions grow, and no cross-version stability contract. An early revision of `06_gold/README.md` recommended it; now reconciled. |
 
 ---
 

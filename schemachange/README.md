@@ -139,7 +139,7 @@ and it must be restated in full to change a metric — reasoning in
 
 ## Current status
 
-**Bronze and silver are complete in `SALES_DEV`. Gold is the next build.**
+**Bronze and silver are complete in `SALES_DEV`. Gold is underway — `dim_country` is the first gold object.**
 
 | Layer | Range | State |
 |---|---|---|
@@ -148,7 +148,7 @@ and it must be restated in full to change a metric — reasoning in
 | `03_common` | V3.x | Done — 2 CSV file formats, 6 sequences (`V3.1.2` is an intentional gap) |
 | `04_bronze` | V4.x | Done — stage, 47 staged files, **13 tables loaded** |
 | `05_silver` | V5.x | **Done — 13 dynamic tables, all INCREMENTAL and verified** |
-| `06_gold` | V6.x | Scaffold |
+| `06_gold` | V6.x | **In progress — `V6.1.1` `dim_country` delivered (35 rows, DOWNSTREAM, INCREMENTAL, derived PK)** |
 | `07_orchestration` | V7.x | Scaffold |
 | `08_data_quality` | V8.x | **Done for silver — 31 checks, all passing; task created SUSPENDED** |
 
