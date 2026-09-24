@@ -47,6 +47,7 @@ cortex/
 | `schemachange/README.md` | Deployment mechanics, naming convention, env var matrix, promotion flow. **Read before writing any script.** |
 | `schemachange/scripts/05_silver/README.md` | **The single most valuable file in the repo.** Every DQ convention, every data defect, every rejected rule, and all carry-forward items for gold. |
 | `schemachange/scripts/04_bronze/README.md` | Bronze loading approach, `INFER_SCHEMA` usage, metadata columns. |
+| `schemachange/scripts/08_data_quality/README.md` | **Read before adding any DQ check.** Why DQ is hand-rolled rather than DMF-based, the documented exception to DQ rule 4, and why the check task is not resumed. |
 | `schemachange/scripts/06_gold/README.md` | Gold rules and reserved version range. Scaffold — this is the next build. |
 | `schemachange/scripts/07_orchestration/README.md` | Ingest task / stage stream design. Scaffold. |
 | `plans/2026-09-19-session-summary.md` | Earlier session narrative. Historical — trust the script headers over it where they disagree. |
@@ -58,7 +59,7 @@ scripts are short and self-documenting.
 
 It does not exist in this repository, and no file matching `*qual*`, `*dq*` or
 `*doc*` does either. **Do not go looking for it.** The data-quality requirements
-live in two places instead, and both are richer than a separate folder would be:
+live in three places instead, and all are richer than a separate folder would be:
 
 1. **`schemachange/scripts/05_silver/README.md`** — the consolidated layer-wide
    view: conventions, the defect register, and what each one blocks downstream.
@@ -66,6 +67,10 @@ live in two places instead, and both are richer than a separate folder would be:
    reasoning. These headers are long on purpose. They record not just what each
    DQ flag does but **which candidate rules were tested and rejected, and why**,
    so a future session does not re-implement a rule that was already disproved.
+3. **`schemachange/scripts/08_data_quality/`** — the *executable* checks, as
+   distinct from 1 and 2 which document the row-level flags built into silver.
+   This is where set-level assertions live (FK existence, bronze↔silver parity),
+   per DQ rule 3.
 
 If a `data_quality_docs/` folder is genuinely wanted as a separate artefact, it
 would need to be created and populated — say so rather than assuming it exists.
@@ -85,6 +90,7 @@ would need to be created and populated — say so rather than assuming it exists
 | Silver | `05_silver/` V5.x | **Done — 13 dynamic tables, all INCREMENTAL, all verified** |
 | Gold | `06_gold/` V6.x | Scaffold only |
 | Orchestration | `07_orchestration/` V7.x | Scaffold only |
+| Data quality | `08_data_quality/` V8.x | **Done for silver — 31 checks, task created SUSPENDED** |
 
 Only the **DEV** context (`SALES_DEV`) exists. QA and prod are not built.
 
@@ -201,7 +207,12 @@ ignoring them produces flags nobody trusts.
    in a DT couples its refresh to the joined table.
 4. **No allow-lists on business categorisations.** A new segment, tier, format or
    payment method is a *business change*, not a defect. NULL is the defect;
-   unfamiliar is news.
+   unfamiliar is news. **Scoped exception:** this forbids an allow-list as a
+   *row-level flag inside a dynamic table*. `08_data_quality/V8.1.2` asserts
+   accepted values as *set-level monitoring* on `channel_id`, `payment_method`,
+   `loyalty_tier` and `customer_segment` — it rejects no row, writes no flag, and
+   delivers the "news" rather than labelling a defect. Reasoning in that script's
+   header. **Do not migrate those back into a silver flag expression.**
 5. **Nullability does not decide whether a flag belongs — semantics do.** For a
    *measure*, absent is always wrong. For an *open-ended date*, absent is a
    legitimate state.
@@ -266,8 +277,9 @@ relevant script header.
 | Flagging only the 8,471 detectable currency rows | Would assert the other 68,684 are sound. |
 | Rent-per-sqft plausibility band | Prime Apple retail genuinely reaches USD 2,000–3,000/sqft; any useful threshold flags real flagships. |
 | `REGEXP_REPLACE` phone to digits | Fuses extensions onto subscriber numbers. |
-| Allow-lists on segment / tier / format / lifecycle | Business changes, not defects. |
+| Allow-lists on segment / tier / format / lifecycle | Business changes, not defects. **Still rejected as silver row-level flags.** Permitted as set-level monitoring in `08_data_quality/V8.1.2` — see DQ rule 4's scoped exception. |
 | `YEAR(CURRENT_DATE())` plausibility bounds | Non-deterministic → forces FULL refresh. |
+| **Data Metric Functions for the DQ checks** | Snowflake's native Data Quality Monitoring is **Enterprise Edition**; this account is `STANDARD`. Measured: `SELECT edition FROM SNOWFLAKE.ORGANIZATION_USAGE.ACCOUNTS WHERE account_locator = CURRENT_ACCOUNT()` → `STANDARD`. Every DMF statement fails with `Unsupported feature 'DATA METRIC FUNCTION'`, as do `SHOW DATA METRIC FUNCTIONS` and `SYSTEM$DATA_METRIC_SCAN`. Hence `08_data_quality` is hand-rolled SQL. **If the account is ever upgraded, replace most of V8.1.2/V8.1.3 with DMF associations** — the mapping is in that folder's README. |
 
 ---
 
@@ -292,6 +304,9 @@ superseded. Do not extend it; add a versioned script instead.
 
 - **Snowflake connection:** `ysirciu-vg28332` (OAuth). User `NAGUR`, role
   `ACCOUNTADMIN`.
+- **Edition: `STANDARD`.** This rules out Data Quality Monitoring / DMFs, and is
+  why `08_data_quality` is hand-rolled. Check before assuming any Enterprise
+  feature is available.
 - **Warehouses:** `COMPUTE_WH` only. **`WH_DT_XS` does not exist** despite
   earlier notes claiming it — all silver DTs run on `COMPUTE_WH`, whose
   `AUTO_SUSPEND` is 600 s and could reasonably be lowered.
@@ -312,6 +327,10 @@ superseded. Do not extend it; add a versioned script instead.
 | Type-2 `sv_tax_master` | Needed for historical tax. |
 | QA and prod contexts | Not created. |
 | `COMPUTE_WH` `AUTO_SUSPEND` | 600 s; 60 s would suit DT refreshes better. |
+| **DQ check task is SUSPENDED** | `SALES_DEV.COMMON.t_silver_dq_checks`. Do not resume until V7.x ingest runs or gold exists — until then the silver DTs have `TARGET_LAG = DOWNSTREAM` with no consumer and `scheduling_state = OFF`, so they never refresh and every run records 31 identical rows. `V8.2.1__resume_dq_check_task.sql` is **reserved and intentionally unwritten** so a deploy cannot start it silently. |
+| **DQ email delivery unverified** | `silver_dq_email_DEV` exists, but `SYSTEM$SEND_EMAIL` only fires on failure and nothing has failed, so the path has never run. The recipient must be a **verified** address on an account user. If it is not, `dq_results` records the failure while nobody is told — a silent-monitor failure mode. Verify before resuming the task. |
+| **DQ flag thresholds are DEV baselines** | The `<=` thresholds in `V8.1.2` are the measured 2019-dataset counts (24,713 / 23,874 / 3,515 / 698). QA and prod need their own baselines before the task is resumed there. |
+| **`$$` body vs schemachange splitting** | `V8.1.3`'s procedure body is a `$$` block containing semicolons. `07_orchestration/README.md` notes schemachange splits on semicolons client-side. Whether this breaks `schemachange deploy` is **unmeasured** — dev was applied by executing rendered SQL directly. Resolve alongside the `CHANGE_HISTORY_DEV` item, before the QA promotion. |
 
 ---
 

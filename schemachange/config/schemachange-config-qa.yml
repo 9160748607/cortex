@@ -29,3 +29,8 @@ vars:
 
   cost_center: 'CC-SALES-ANALYTICS'
   chargeback_owner: 'sales-data-engineering'
+
+  # Recipient for silver data-quality failure alerts (08_data_quality/V8.1.5).
+  # Per-environment on purpose. Must be a VERIFIED email on a user in this
+  # account or SYSTEM$SEND_EMAIL fails. TODO: point at the QA owner, not dev.
+  dq_notification_email: 'nagur7749@gmail.com'

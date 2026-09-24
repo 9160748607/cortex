@@ -36,3 +36,8 @@ vars:
   # Chargeback tag values (architectural note 6).
   cost_center: 'CC-SALES-ANALYTICS'
   chargeback_owner: 'sales-data-engineering'
+
+  # Recipient for silver data-quality failure alerts (08_data_quality/V8.1.5).
+  # Per-environment on purpose: a dev DQ failure must not page the prod owner.
+  # Must be a VERIFIED email on a user in this account or SYSTEM$SEND_EMAIL fails.
+  dq_notification_email: 'nagur7749@gmail.com'

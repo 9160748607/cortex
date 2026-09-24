@@ -22,7 +22,8 @@ schemachange/
     ├── 04_bronze/        V4.x  landing stage + 13 raw tables      (done)
     ├── 05_silver/        V5.x  13 cleaned dynamic tables          (done)
     ├── 06_gold/          V6.x  facts, dims, agg, semantic view (scaffold)
-    └── 07_orchestration/ V7.x  ingest task                   (scaffold)
+    ├── 07_orchestration/ V7.x  ingest task                   (scaffold)
+    └── 08_data_quality/  V8.x  silver DQ check set                (done)
 ```
 
 schemachange keys off **file names, not paths** — the numbered folders exist
@@ -63,6 +64,7 @@ reproducible and reviewable; the leading underscore guarantees
 | `object_type` | `TRANSIENT` | `TRANSIENT` | *(empty)* |
 | `retention_days` | `1` | `1` | `7` |
 | `governance_database` | `GOVERNANCE` | ← same | ← same |
+| `dq_notification_email` | dev owner | QA owner | prod on-call list |
 
 `object_type` is how architectural note 1 is honoured without forking scripts:
 it renders `CREATE TRANSIENT DATABASE` in dev/QA and `CREATE DATABASE` in prod.
@@ -70,6 +72,12 @@ it renders `CREATE TRANSIENT DATABASE` in dev/QA and `CREATE DATABASE` in prod.
 `governance_database` is deliberately **not** per-environment — all three
 contexts share one governance DB, so a tag applied in dev carries the identical
 definition in prod.
+
+`dq_notification_email` **is** per-environment: a dev data-quality failure must
+not page whoever owns prod. It must be a **verified** email on a user in the
+account or `SYSTEM$SEND_EMAIL` fails. The rule of thumb across these vars is that
+shared *definitions* are unsuffixed while per-context *state and routing* are
+suffixed — compare `CHANGE_HISTORY_<ENV>` and `silver_dq_email_<ENV>`.
 
 ## Deploying
 
@@ -142,6 +150,7 @@ and it must be restated in full to change a metric — reasoning in
 | `05_silver` | V5.x | **Done — 13 dynamic tables, all INCREMENTAL and verified** |
 | `06_gold` | V6.x | Scaffold |
 | `07_orchestration` | V7.x | Scaffold |
+| `08_data_quality` | V8.x | **Done for silver — 31 checks, all passing; task created SUSPENDED** |
 
 Only the **DEV** context exists; QA and prod are not built.
 
@@ -181,7 +190,11 @@ Not in the order the silver layer was built — verify before citing:
 | FX-rate dimension | Absent, and it blocks all cross-currency revenue in gold. See `05_silver/README.md`. |
 | Type-2 `sv_tax_master` | One row per country, so historical tax cannot be recomputed. |
 | `06_gold` / `07_orchestration` | Scaffolds; each folder's README holds the rules and reserved range. Note sequences from `V3.1.3` **cannot** be used in dynamic tables — gold needs hash keys. |
+| `08_data_quality` task suspended | `COMMON.t_silver_dq_checks` is created but not resumed, and `V8.2.1__resume_dq_check_task.sql` is deliberately **not** in the repo so a deploy cannot start it. Silver DTs have `TARGET_LAG = DOWNSTREAM` with no consumer, so they never refresh — a resumed task would record identical rows daily. Resume once V7.x ingest runs or gold exists. |
+| DQ email path unverified | `SYSTEM$SEND_EMAIL` only fires on failure and nothing has failed. The recipient must be a verified account email. See `08_data_quality/README.md`. |
 
 For the full data-quality picture — conventions, defect register, and rules that
-were tested and rejected — read `scripts/05_silver/README.md`. Repo-wide
-orientation is in `../AGENT.md`.
+were tested and rejected — read `scripts/05_silver/README.md`. For the executable
+checks and why they are not built on Data Metric Functions (this account is
+`STANDARD`; DMFs are Enterprise-only), read `scripts/08_data_quality/README.md`.
+Repo-wide orientation is in `../AGENT.md`.

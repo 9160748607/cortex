@@ -10,6 +10,16 @@ Two open modelling items block parts of gold: there is **no FX-rate dimension**
 (so no cross-currency revenue) and **`sv_tax_master` is not time-variant** (so no
 historical tax recomputation). Both are detailed in the sales-facts section.
 
+> **Executable checks now live in `08_data_quality/`.** This README documents the
+> **row-level `dq_issue_flags`** built into the 13 dynamic tables. The *set-level*
+> assertions that DQ rule 3 pushes out of silver — FK existence, bronze/silver
+> parity and lag, and thresholds that make these flags alertable — are implemented
+> there as `COMMON.v_dq_checks` (31 checks). That folder also records the one
+> **scoped exception to DQ rule 4** (categorical allow-lists, permitted as
+> monitoring but still forbidden as silver flags) and why the checks are not built
+> on Data Metric Functions: this account is `STANDARD` and DMFs are
+> Enterprise-only.
+
 ## Delivered
 
 | Script | Table | Rows | Refresh mode |
