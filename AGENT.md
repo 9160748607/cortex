@@ -88,7 +88,7 @@ would need to be created and populated — say so rather than assuming it exists
 | Common | `03_common/` V3.x | Done — 2 CSV file formats, 6 sequences (**note:** `V3.1.2` is an intentional gap) |
 | Bronze | `04_bronze/` V4.x | Done — internal stage, 47 staged files, **13 tables loaded** |
 | Silver | `05_silver/` V5.x | **Done — 13 dynamic tables, all INCREMENTAL, all verified** |
-| Gold | `06_gold/` V6.x | **In progress — `dim_country` (35, SCD-2), `dim_product` (650, SCD-1), `bridge_product_country` (22,750)** |
+| Gold | `06_gold/` V6.x | **In progress — `dim_country` (35, SCD-2), `dim_product` (650, SCD-1), `bridge_product_country` (22,750), `dim_store` (121, SCD-1), `dim_customer` (31,350, SCD-1, **unmasked PII**)** |
 | Orchestration | `07_orchestration/` V7.x | Scaffold only |
 | Data quality | `08_data_quality/` V8.x | **Done for silver — 31 checks, task created SUSPENDED** |
 
@@ -247,10 +247,34 @@ These were all discovered by breaking something. Full reasoning in
   keep showing "Full refresh" until gold gains a consumer or the ingest task runs.
   This has already prompted the question twice. Do not "fix" it by recreating the
   table or switching refresh modes; verify in SQL and move on.
-  `V5.2.1`, `V5.2.2` and `V6.1.2` each produced one, and all 14 dynamic tables
-  remain `INCREMENTAL` with `refresh_mode_reason = NULL`.
+  `V5.2.1`, `V5.2.2` and `V6.1.2` each produced one, and all **18** dynamic tables
+  (13 silver + 5 gold) remain `INCREMENTAL` with `refresh_mode_reason = NULL`.
 - **No streams on bronze tables** — DTs manage their own change tracking, so a
   stream is redundant and forces extended retention.
+- **Before treating ANY source date as SCD-2 validity, measure two things.** This
+  has now cost three separate designs, so it is a rule, not an anecdote. Most
+  "effective date" columns in this source are **load artifacts**, not business
+  dates, and they postdate the 2019 facts — so using them as validity produces a
+  clean, confident, **empty** answer rather than an error.
+
+  | Source column | Distinct values | Fact join **with** the window |
+  |---|---|---|
+  | `sv_tax_master.effective_date` | 1 (`2020-01-01`) | 24 of 77,155 rows |
+  | `sv_store_master.effective_start_date` | **1** (`2026-04-17`) | **0** of 61,804 |
+  | `sv_customer_master.updated_at` | 31,350, all in a **5-second window** | **0** of 77,155 |
+
+  The two checks, always in this order:
+  1. `COUNT(DISTINCT <date>)` — one value, or a span of seconds, means a load stamp.
+  2. Join the fact **with** the validity predicate and compare to joining without it.
+     A collapse to 0 is decisive.
+
+  Note the customer case: `updated_at` is unique per row, so it is a perfectly
+  valid **version discriminator** (V5.2.1 relies on it) while still being useless
+  as **validity**. Those are two different jobs — do not infer one from the other.
+  Only `sv_country_master.effective_start_date` has survived both checks, which is
+  why `dim_country` is the single SCD-2 dimension. Where the check fails, build
+  SCD-1, rename the column to `load_*` so it cannot be mistaken for validity, and
+  record the measured zero in its comment.
 
 ---
 
@@ -305,7 +329,7 @@ relevant script header.
 | **No FX-rate dimension exists** | Cross-currency `SUM(net_total)` runs cleanly and returns a confident, meaningless number. Gold must stay single-currency until one is built. |
 | **`sv_tax_master` is not time-variant** | One row per country, so it cannot express a rate change. Recomputing 2019 tax fails on 5 countries / 5,609 rows — four are real post-2019 rate rises. **The transaction's `total_tax` is authoritative.** Never recompute historical tax from the master. |
 | **Header and item measures are identical (1:1)** | Both total **50,186,627.97**. A naive join summing both returns exactly double **while the row count stays correct**. Build revenue from `sv_sales_item` (lower grain). |
-| **No masking policies exist** | `sv_customer_master` has 9 fully-populated personal-data columns; 1,051 customers are in GDPR countries. Policies belong in `GOVERNANCE` (rule 3) and must be *attached* in silver. |
+| **No masking policies exist** | `sv_customer_master` has 9 fully-populated personal-data columns; 1,051 customers are in GDPR countries. Policies belong in `GOVERNANCE` (rule 3) and must be *attached* in silver. **Widened by `V6.1.6`: `GOLD.dim_customer` now re-exposes all 9 columns unmasked, so the same data is readable in two schemas.** Carrying them was an explicit decision (the alternatives — an analytics-only dimension, or a `DATA_SENSITIVITY` tag — are recorded in the `V6.1.6` header), so attaching a policy must now cover **both** `SILVER.sv_customer_master` and `GOLD.dim_customer`. |
 
 ### Data defects to carry forward
 

@@ -128,8 +128,8 @@ V6.1.1__create_gold_dim_country.sql            # DELIVERED - region+country+curr
 V6.1.2__alter_gold_dim_country_scd2_intervals.sql  # DELIVERED - true SCD-2 via LEAD
 V6.1.3__create_gold_dim_product.sql            # DELIVERED - category/family/model/sku
 V6.1.4__create_gold_bridge_product_country.sql # DELIVERED - bridge, NOT a dimension
-V6.1.5__create_gold_dim_store.sql
-V6.1.6__create_gold_dim_customer.sql
+V6.1.5__create_gold_dim_store.sql              # DELIVERED - SCD-1, load-date trap
+V6.1.6__create_gold_dim_customer.sql           # DELIVERED - SCD-1, CARRIES UNMASKED PII
 V6.1.7__create_gold_dim_date.sql            # must cover 2020-01-01, see below
 V6.2.1__create_gold_fact_sales.sql          # joins gold dims, not silver
 V6.3.1__create_gold_agg_sales_summary.sql   # aggregated fact
