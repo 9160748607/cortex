@@ -88,7 +88,7 @@ would need to be created and populated — say so rather than assuming it exists
 | Common | `03_common/` V3.x | Done — 2 CSV file formats, 6 sequences (**note:** `V3.1.2` is an intentional gap) |
 | Bronze | `04_bronze/` V4.x | Done — internal stage, 47 staged files, **13 tables loaded** |
 | Silver | `05_silver/` V5.x | **Done — 13 dynamic tables, all INCREMENTAL, all verified** |
-| Gold | `06_gold/` V6.x | **In progress — `dim_country` (35, SCD-2), `dim_product` (650, SCD-1), `bridge_product_country` (22,750), `dim_store` (121, SCD-1), `dim_customer` (31,350, SCD-1, **unmasked PII**), `dim_date` (31,411, **regular table**)** |
+| Gold | `06_gold/` V6.x | **In progress — 5 dims + bridge + 2 facts. `dim_country` (35, SCD-2), `dim_product` (650), `bridge_product_country` (22,750), `dim_store` (**122** = 121 + N/A member), `dim_customer` (31,350, **unmasked PII**), `dim_date` (31,411, **regular table**), `fact_sales_item` (77,155, **revenue source**), `fact_sales_header` (77,155, **not** the revenue source)** |
 | Orchestration | `07_orchestration/` V7.x | Scaffold only |
 | Data quality | `08_data_quality/` V8.x | **Done for silver — 31 checks, task created SUSPENDED** |
 
@@ -285,6 +285,37 @@ These were all discovered by breaking something. Full reasoning in
   `dim_date` but FY2020 Q1 in reality. Fine for internal grouping; **never
   reconcile against published Apple financials.** Unrelated to
   `dim_country.apple_fiscal_segment`, which is geographic.
+- **An as-of SCD-2 range join is possible, but only one way.** Resolving a fact's
+  dimension key *as of* the event date needs `date BETWEEN valid_from AND valid_to`.
+  Measured, all three variants:
+
+  | Join shape | `REFRESH_MODE` | Result |
+  |---|---|---|
+  | `LEFT JOIN` + `BETWEEN` | `AUTO` | **FULL** — *"Change tracking is not supported on queries containing outer joins with non-equality predicates"* |
+  | `INNER JOIN` + `BETWEEN` | `AUTO` | **FULL** — *"contains a complex query … To use INCREMENTAL, re-create with REFRESH_MODE=INCREMENTAL"* |
+  | `INNER JOIN` + `BETWEEN` | `INCREMENTAL` | ✅ **INCREMENTAL**, `reason = NULL` |
+
+  So: **the as-of join must be `INNER`, and `REFRESH_MODE` must be stated
+  explicitly.** The first row is a hard limitation with no workaround; the second
+  is `AUTO` silently downgrading. **Never leave `REFRESH_MODE = AUTO` on a fact.**
+
+  The cost of `INNER` is that an unresolvable key *drops the row* instead of
+  producing a NULL — the quietest failure available. Do **not** fix that with a
+  `LEFT JOIN`; assert the row count instead (`fact rows = silver rows`), which is
+  what `V6.2.1` and `V6.2.2` do. Equi-joins are unaffected and are `LEFT`
+  everywhere for exactly this protection.
+- **Facts get no derived primary key.** The `QUALIFY ROW_NUMBER() = 1` trick that
+  yields `SYS_CONSTRAINT_DERIVED_PK` on every gold *dimension* produces **nothing**
+  on `fact_sales_item` — Snowflake does not infer the constraint through five
+  joins. `SHOW UNIQUE KEYS` returns zero rows. Uniqueness still holds and is
+  asserted numerically instead (`COUNT(*) = COUNT(DISTINCT <key>)`). Don't chase
+  the missing metadata.
+- **`UNION ALL` a synthetic member *outside* the `QUALIFY`, never inside.** Adding
+  a row to a dimension (e.g. the `dim_store` N/A member, `V6.1.8`) by appending
+  `UNION ALL` after a branch that already applied `QUALIFY` destroys the derived
+  PK — the union output is no longer provably unique. Put both branches in a
+  subquery and apply one `QUALIFY` to the combined set. Verified: the derived PK
+  survived.
 - **No streams on bronze tables** — DTs manage their own change tracking, so a
   stream is redundant and forces extended retention.
 - **Before treating ANY source date as SCD-2 validity, measure two things.** This
@@ -364,14 +395,14 @@ relevant script header.
 | **All amounts are USD-scaled regardless of currency** | Every one of the 27 currencies averages 620–780 `net_total`. Affects **all 77,155 rows**, not just the 8,471 JPY/KRW rows where `minor_unit = 0` makes it detectable. **Do not `ROUND()`** — it yields a type-correct value still wrong by ~150× and destroys the evidence. |
 | **No FX-rate dimension exists** | Cross-currency `SUM(net_total)` runs cleanly and returns a confident, meaningless number. Gold must stay single-currency until one is built. |
 | **`sv_tax_master` is not time-variant** | One row per country, so it cannot express a rate change. Recomputing 2019 tax fails on 5 countries / 5,609 rows — four are real post-2019 rate rises. **The transaction's `total_tax` is authoritative.** Never recompute historical tax from the master. |
-| **Header and item measures are identical (1:1)** | Both total **50,186,627.97**. A naive join summing both returns exactly double **while the row count stays correct**. Build revenue from `sv_sales_item` (lower grain). |
+| **Header and item measures are identical (1:1)** | Both total **50,186,627.97**. A naive join summing both returns exactly double **while the row count stays correct**. Build revenue from `sv_sales_item` (lower grain). **Now institutionalised in gold by `V6.2.1`/`V6.2.2`:** `fact_sales_item.net_amount` is the revenue source; `fact_sales_header.order_net_amount` is the same figure at order grain, deliberately prefixed `order_` so the two cannot be confused. Verified per order: 0 mismatches. **Never join or union the two facts to sum money.** |
 | **No masking policies exist** | `sv_customer_master` has 9 fully-populated personal-data columns; 1,051 customers are in GDPR countries. Policies belong in `GOVERNANCE` (rule 3) and must be *attached* in silver. **Widened by `V6.1.6`: `GOLD.dim_customer` now re-exposes all 9 columns unmasked, so the same data is readable in two schemas.** Carrying them was an explicit decision (the alternatives — an analytics-only dimension, or a `DATA_SENSITIVITY` tag — are recorded in the `V6.1.6` header), so attaching a policy must now cover **both** `SILVER.sv_customer_master` and `GOLD.dim_customer`. |
 
 ### Data defects to carry forward
 
 | Defect | Detail |
 |---|---|
-| **38,102 sales rows predate their store's opening** | 61.6% of store-attributed rows; 67 of 121 stores open after the 2019 sales period. Belongs in **gold** (needs a join, per DQ rule 3). Must compare against **each store's own** open date, never a hard-coded year. |
+| **38,102 sales rows predate their store's opening** | 61.6% of store-attributed rows; 67 of 121 stores open after the 2019 sales period. **RESOLVED into gold by `V6.2.1`/`V6.2.2`** as the `sale_before_store_open` flag — compared against **each store's own** open date, never a hard-coded year, and FALSE for ONLINE rows because the N/A member's open date is NULL by design. Verified at exactly 38,102 on both facts. Still a source defect, now visible rather than latent. |
 | **3,515 customers were minors at registration** | 698 under 13 (COPPA), 1,051 minors in GDPR countries, youngest **11**. Needs a governance decision, not a data fix. |
 | **`UK` is not valid ISO 3166-1 alpha-2** | Should be `GB`. Flagged not rejected — 2,400 customers, 5,862 sales and 8 stores depend on it. |
 | **24 sales rows timestamped 2020-01-01** | Timezone spillover. **RESOLVED by `V6.1.7`** — `dim_date` spans 1950-01-01 → 2035-12-31, and a zero-miss coverage check confirms all 77,155 sales dates resolve. Still relevant to any *hard-coded* 2019 filter, which would silently drop these 24 rows. |

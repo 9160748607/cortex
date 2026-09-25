@@ -131,7 +131,9 @@ V6.1.4__create_gold_bridge_product_country.sql # DELIVERED - bridge, NOT a dimen
 V6.1.5__create_gold_dim_store.sql              # DELIVERED - SCD-1, load-date trap
 V6.1.6__create_gold_dim_customer.sql           # DELIVERED - SCD-1, CARRIES UNMASKED PII
 V6.1.7__create_gold_dim_date.sql               # DELIVERED - REGULAR TABLE, not a DT
-V6.2.1__create_gold_fact_sales.sql          # joins gold dims, not silver
+V6.1.8__alter_gold_dim_store_add_na_member.sql # DELIVERED - N/A member, no NULL FKs
+V6.2.1__create_gold_fact_sales_item.sql        # DELIVERED - ATOMIC, line grain, revenue
+V6.2.2__create_gold_fact_sales_header.sql      # DELIVERED - order grain, NOT the revenue source
 V6.3.1__create_gold_agg_sales_summary.sql   # aggregated fact
 V6.4.x__create_gold_dim_*_scd2.sql          # RESERVED - procedure-maintained
                                             # true SCD-2, if history is needed
