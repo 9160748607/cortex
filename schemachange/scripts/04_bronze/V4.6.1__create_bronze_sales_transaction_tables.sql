@@ -2,8 +2,8 @@
    V4.6.1 - Bronze landing tables for the sales-transaction source group
 
    Source: @sales_csv_stg/initial-load/sales-transaction/<year>/
-             sales_header_<year>.csv   77,155 rows, 15 columns
-             sales_item_<year>.csv     77,155 rows, 11 columns
+             sales_header_<year>.csv   77,131 rows, 15 columns
+             sales_item_<year>.csv     77,131 rows, 11 columns
    Currently staged: 2019 only.
 
    These are the fact-grain tables. Two tables, mirroring the source split at
@@ -39,8 +39,8 @@
    Scale is kept at 2 throughout: all observed values are exact to 2 decimals
    and these are transactional money amounts, not derived rates.
 
-   NOTE - header:item is exactly 1:1 in this dataset, not 1:many. 77,155 rows
-   each, 77,155 distinct transaction_sk on both sides, max line_number = 1,
+   NOTE - header:item is exactly 1:1 in this dataset, not 1:many. 77,131 rows
+   each, 77,131 distinct transaction_sk on both sides, max line_number = 1,
    zero orphans in either direction. Any "average basket size" or "lines per
    order" metric will therefore be identically 1, and item-level aggregation
    will equal header-level aggregation. That is a property of the generated
@@ -58,8 +58,8 @@
    must not assume it owns every 2020 row.
 
    Verified: gross_amount - total_discount + total_tax = net_total on all
-   77,155 header rows, and unit_price*quantity - discount_amount + tax_amount
-   = line_total on all 77,155 item rows, to within 0.01.
+   77,131 header rows, and unit_price*quantity - discount_amount + tax_amount
+   = line_total on all 77,131 item rows, to within 0.01.
 
    sales_item has no source_system column; header does. Left as-is - bronze
    does not invent columns the source omits.

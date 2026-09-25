@@ -16,8 +16,8 @@
    --------------------------------------------------------------------
      Grain         one row per transaction_sk
      Business key  transaction_sk - a lowercase UUID (surrogate, from source)
-     Alternate key transaction_id - TXN-<hex>, also unique across all 77,155
-     Volume        77,155 rows, 15 source columns
+     Alternate key transaction_id - TXN-<hex>, also unique across all 77,131
+     Volume        77,131 rows, 15 source columns
      Source system SAP_SD - a third source, distinct from MDM (customer) and
                    RETAIL_OPS (store)
      Foreign keys  customer_id -> sv_customer_master     ZERO orphans, ZERO nulls
@@ -27,11 +27,11 @@
                                                           15,351 legitimate NULLs
      Referenced by sv_sales_item (V5.1.13), 1:1
 
-     channel_id       ONLINE 15,351 / POS 61,804
+     channel_id       ONLINE 15,351 / POS 61,780
      payment_method   9 values (Visa, Mastercard, Amex, Discover, Apple Pay,
                       Apple Financing, Corporate Financing, Bank EMI, Cash)
      currency         27 distinct
-     transaction ts   2019-01-01 00:49 to 2020-01-01 02:55
+     transaction ts   2019-01-01 00:49 to 2019-12-31 23:59 (V4.6.3 filtered)
 
    WHAT IS ACTUALLY CLEAN HERE - and it is a lot
    --------------------------------------------------------------------
@@ -39,12 +39,12 @@
    VALUES and CHRONOLOGY, never about structure:
      - Both candidate keys are fully unique. No duplicates to resolve.
      - Every FK resolves. Zero orphans on customer, country, currency and store.
-     - net_total = gross_amount - total_discount + total_tax holds on ALL 77,155
+     - net_total = gross_amount - total_discount + total_tax holds on ALL 77,131
        rows, to the cent. Zero arithmetic breaks.
      - No negative gross, discount or tax. No non-positive net. No discount
        exceeding gross. No NULL amounts anywhere.
      - channel_id and store_id agree PERFECTLY: store_id IS NULL on exactly the
-       15,351 ONLINE rows, and populated on exactly the 61,804 POS rows. Zero
+       15,351 ONLINE rows, and populated on exactly the 61,780 POS rows. Zero
        ONLINE-with-store, zero POS-without-store.
      - Geography is internally coherent: header country matches the store's
        country and the customer's country on every row, and currency matches the
@@ -71,7 +71,7 @@
    ~90,000 JPY.
 
    THE PRODUCER GENERATED EVERY AMOUNT ON ONE USD-LIKE SCALE AND ATTACHED A
-   CURRENCY LABEL. The defect therefore affects ALL 77,155 ROWS, not 8,471. JPY
+   CURRENCY LABEL. The defect therefore affects ALL 77,131 ROWS, not 8,471. JPY
    and KRW are merely where it becomes DETECTABLE, because those are the only
    currencies whose minor_unit makes a decimal self-evidently illegal. INR, MXN
    and ZAR are wrong by the same factor and pass every decimal test.
@@ -150,10 +150,10 @@
    open item rather than patched over.
 
    ==========================================================================
-   DEFECT 3 - 38,102 ROWS PREDATE THEIR STORE'S OPENING, AND WHERE THE FLAG GOES
+   DEFECT 3 - 38,088 ROWS PREDATE THEIR STORE'S OPENING, AND WHERE THE FLAG GOES
    ==========================================================================
    Carried from V5.1.11: 67 of 121 stores open after the 2019 sales period (the
-   latest in April 2026), so 38,102 rows - 61.6% of the 61,804 store-attributed
+   latest in April 2026), so 38,088 rows - 61.6% of the 61,780 store-attributed
    rows - point at a store that did not yet exist.
 
    V5.1.11's header stated that "V5.1.12 owns the row-level flag". THAT IS
@@ -163,7 +163,7 @@
    store_open_date, which means joining sv_store_master into this dynamic table's
    definition. The V5.1.7 rule is explicit that a DT's flags describe only its own
    row and that anything needing a second table is a set-level assertion. Adding
-   the join would also make a 77,155-row fact refresh whenever a 121-row dimension
+   the join would also make a 77,131-row fact refresh whenever a 121-row dimension
    changes, and would start this silver fact down the path of joining all five of
    its dimensions - which is a gold star-schema build, not a silver cleanse.
 
@@ -189,12 +189,12 @@
    is a rule that will be wrong every January. The rows are also almost certainly
    CORRECT - the timestamp is real, only the file-partitioning assumption is
    naive. Asserted in validation, and noted for the gold date dimension, which
-   must cover 2020-01-01 or 24 rows will fail to join to a calendar.
+   must cover 2020-01-01 - though V4.6.3 has since REMOVED those 24 rows.
 
    MEASURES ARE IDENTICAL TO sv_sales_item - DO NOT SUM BOTH
    --------------------------------------------------------------------
    Because the relationship is exactly 1:1 (V5.1.13), the four header measures are
-   a verbatim restatement of the item measures. Verified across all 77,155 pairs,
+   a verbatim restatement of the item measures. Verified across all 77,131 pairs,
    to the cent, zero exceptions:
        gross_amount   = quantity * unit_price
        total_discount = discount_amount
@@ -258,7 +258,7 @@
    NORMALISATION
    --------------------------------------------------------------------
      transaction_sk    TRIM ONLY - a lowercase UUID, exactly the V5.1.10 case.
-                       Upper-casing would mutate all 77,155 values AND break the
+                       Upper-casing would mutate all 77,131 values AND break the
                        join to sv_sales_item, whose transaction_sk is also
                        lowercase (verified on both sides). For an opaque
                        surrogate the rule is: both sides must be treated
@@ -269,7 +269,7 @@
                        UPPER+TRIM - join keys and codes.
      customer_id       TRIM ONLY - lowercase UUID, must match sv_customer_master
                        which is also TRIM-only. This is the column where an
-                       accidental UPPER() would orphan all 77,155 rows.
+                       accidental UPPER() would orphan all 77,131 rows.
      payment_method    TRIM only - a display value with meaningful casing
                        ("Apple Pay", not "APPLE PAY").
 
@@ -302,7 +302,7 @@ SELECT
     UPPER(TRIM(b.transaction_id))                           AS transaction_id,
     b.transaction_timestamp,
     -- TRIM ONLY - lowercase UUID matching sv_customer_master's TRIM-only key.
-    -- An UPPER() here would orphan all 77,155 rows.
+    -- An UPPER() here would orphan all 77,131 rows.
     TRIM(b.customer_id)                                     AS customer_id,
     -- NULL on exactly the 15,351 ONLINE rows. That is correct, not missing.
     UPPER(TRIM(b.store_id))                                 AS store_id,
@@ -407,7 +407,7 @@ SELECT (SELECT COUNT(*) FROM {{ database }}.BRONZE.br_sales_header)             
        (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_sales_header h
           LEFT JOIN {{ database }}.SILVER.sv_store_master s ON h.store_id=s.store_code
           WHERE h.store_id IS NOT NULL AND s.store_code IS NULL)                             AS orphan_store;
--- Recorded: 77155, 77155, 77155, 77155, 0, 0, 0, 0, 0, 0
+-- Recorded: 77131, 77131, 77131, 77131, 0, 0, 0, 0, 0, 0
 -- silver_rows must equal BOTH silver_sks and silver_tids.
 
 -- KEY-MUTATION PROOF (the V5.1.10 lesson). If either count is non-zero a UUID
@@ -516,8 +516,8 @@ SELECT MIN(transaction_timestamp) AS earliest,
        MAX(transaction_timestamp) AS latest,
        SUM(IFF(transaction_timestamp >= '2020-01-01',1,0)) AS rows_in_2020
 FROM {{ database }}.SILVER.sv_sales_header;
--- Recorded: 2019-01-01 00:49:45, 2020-01-01 02:55:21, 24
--- The date dimension MUST cover 2020-01-01 or these 24 rows will not join.
+-- Recorded (after V4.6.3): 2019-01-01 00:49:45, 2019-12-31 23:59:33, 0
+-- These 24 rows were REMOVED by V4.6.3; the loaded data is now 2019 only.
 
 -- Arithmetic integrity - the flag that matters most, and it is clean.
 SELECT COUNT(*) AS silver_rows,
@@ -526,7 +526,7 @@ SELECT COUNT(*) AS silver_rows,
        SUM(IFF(total_discount > gross_amount,1,0))      AS discount_exceeds_gross,
        SUM(IFF(total_tax = 0,1,0))                      AS zero_tax_rows
 FROM {{ database }}.SILVER.sv_sales_header;
--- Recorded: 77155, 0, 0, 0, 1205
+-- Recorded: 77131, 0, 0, 0, 1205
 -- 1,205 zero-tax rows are legitimate: zero-rate jurisdictions (see V5.1.3).
 
 -- Anything needing attention (expect ZERO rows)

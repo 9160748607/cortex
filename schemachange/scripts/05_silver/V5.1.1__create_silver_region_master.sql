@@ -124,7 +124,7 @@
    Incremental refresh needs the change-tracking window to still cover the gap
    since the last refresh. A DT that goes more than a day without refreshing may
    be reinitialized with a full recompute. Harmless at 5 rows; it will matter for
-   br_sales_header at 77,155 rows. Either raise retention on SILVER or give the
+   br_sales_header at 77,131 rows. Either raise retention on SILVER or give the
    leaf gold table a time-based lag so the whole chain is pulled regularly.
 
    Change tracking on the base table is enabled implicitly by Snowflake when the

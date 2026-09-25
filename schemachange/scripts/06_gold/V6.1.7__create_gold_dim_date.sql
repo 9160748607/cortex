@@ -76,7 +76,8 @@
    *** USE A LEFT JOIN, NOT AN INNER JOIN. *** An inner join silently drops any
    fact whose date falls outside the calendar. LEFT JOIN plus an assertion that
    date_key IS NOT NULL turns the join into a coverage guard, which is exactly
-   what this repo keeps needing - see the 24 rows on 2020-01-01.
+   what this repo keeps needing. (The 24 rows on 2020-01-01 that motivated this were
+   later removed by V4.6.3; dim_date still covers the date as harmless headroom.)
 
    ==========================================================================
    *** THIS TABLE DOES NOT COVER 9999-12-31. NEVER JOIN valid_to TO IT. ***

@@ -148,7 +148,7 @@ and it must be restated in full to change a metric — reasoning in
 | `03_common` | V3.x | Done — 2 CSV file formats, 6 sequences (`V3.1.2` is an intentional gap) |
 | `04_bronze` | V4.x | Done — stage, 47 staged files, **13 tables loaded** |
 | `05_silver` | V5.x | **Done — 13 dynamic tables, all INCREMENTAL and verified** |
-| `06_gold` | V6.x | **In progress — 5 dims + bridge + 2 facts, all 7 DTs DOWNSTREAM + INCREMENTAL plus `dim_date` as a regular table. `fact_sales_item` (77,155) is the revenue source; `fact_sales_header` (77,155) is **not** — both total 50,186,627.97** |
+| `06_gold` | V6.x | **In progress — 5 dims + bridge + 2 facts, all 7 DTs DOWNSTREAM + INCREMENTAL plus `dim_date` as a regular table. `fact_sales_item` (77,131) is the revenue source; `fact_sales_header` (77,131) is **not** — both total 50,172,602.26** |
 | `07_orchestration` | V7.x | Scaffold |
 | `08_data_quality` | V8.x | **Done for silver — 31 checks, all passing; task created SUSPENDED** |
 

@@ -19,7 +19,7 @@
      Volume        121 rows, 22 source columns
      Foreign keys  country_code -> sv_country_master   ZERO orphans
                    tax resolution -> see below; NOT via tax_jurisdiction_code
-     Referenced by br_sales_header.store_id (61,804 of 77,155 sales rows)
+     Referenced by br_sales_header.store_id (61,780 of 77,131 sales rows)
 
      format_code        MINI 43 / FLG 40 / MALL 38
      lifecycle_status   ACTIVE on all 121
@@ -86,17 +86,17 @@
    ACQ_YEAR_MISMATCH in V5.1.10.
 
    ==========================================================================
-   THE HEADLINE DEFECT - 38,102 SALES ROWS PREDATE THEIR STORE'S OPENING
+   THE HEADLINE DEFECT - 38,088 SALES ROWS PREDATE THEIR STORE'S OPENING
    ==========================================================================
    This belongs to the sales fact, not to this dimension, but it is discovered
    here and the numbers must travel with the store table:
 
        67 of 121 stores (55%) have a store_open_date AFTER 2019-12-31
        83 of 121 opened after 2019-01-01
-       All 77,155 sales rows fall in 2019
-       => 38,102 sales rows are attributed to a store that had not yet opened
+       All 77,131 sales rows fall in 2019
+       => 38,088 sales rows are attributed to a store that had not yet opened
 
-   That is 61.6% of the 61,804 store-attributed sales rows (the other 15,351 have
+   That is 61.6% of the 61,780 store-attributed sales rows (the other 15,351 have
    a NULL store_id and are the online channel). Every one of the 67 future-opening
    stores has sales. The latest store_open_date is 2026-04-10.
 
@@ -456,7 +456,7 @@ SELECT (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_store_master
           LEFT JOIN {{ database }}.SILVER.sv_store_master s ON h.store_id = s.store_code
           WHERE h.store_id IS NOT NULL AND s.store_code IS NULL)                   AS orphan_store_sales;
 -- Recorded: 67, 83, 2026-04-10, 38102, 61804, 15351, 0
--- 38,102 of 61,804 store-attributed sales rows (61.6%) predate their store's
+-- 38,088 of 61,780 store-attributed sales rows (61.6%) predate their store's
 -- opening. The STORE rows are fine; the SALES rows are impossible. V5.1.12 owns
 -- the row-level flag, and it must compare against each store's own open date -
 -- never a hard-coded year.

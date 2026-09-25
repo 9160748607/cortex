@@ -65,7 +65,7 @@
    ==========================================================================
    NOT absolute freshness - relative bronze-vs-silver lag
    ==========================================================================
-   Max transaction_timestamp in silver is 2020-01-01 (the 24 timezone-spillover
+   Max transaction_timestamp in silver is 2019-12-31 (V4.6.3 removed the 24 timezone-spillover
    rows in section 7; the dataset is 2019). ANY absolute freshness threshold violates
    forever and gets ignored. Comparing silver's max timestamp to BRONZE's is the
    signal that means something: it detects silver falling behind its source.
@@ -90,7 +90,7 @@
    ==========================================================================
    DELIBERATELY NOT CHECKED
    ==========================================================================
-     38,102 sales rows predating their store's opening - real, but section 7 assigns it
+     38,088 sales rows predating their store's opening - real, but section 7 assigns it
        to gold, and it needs each store's OWN open date, never a literal year.
      Cross-currency amount correctness - unfixable without an FX dimension. A
        check would assert a problem nobody can action.

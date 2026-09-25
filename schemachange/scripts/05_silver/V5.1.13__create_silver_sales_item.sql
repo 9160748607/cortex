@@ -12,9 +12,9 @@
    ENTITY DOMAIN
    --------------------------------------------------------------------
      Grain         one row per transaction_line_id
-     Business key  transaction_line_id - LINE-<hex>, unique across all 77,155
-     Alternate key (transaction_sk, line_number) - also unique, 77,155 distinct
-     Volume        77,155 rows, 10 source columns - the narrowest fact
+     Business key  transaction_line_id - LINE-<hex>, unique across all 77,131
+     Alternate key (transaction_sk, line_number) - also unique, 77,131 distinct
+     Volume        77,131 rows, 10 source columns - the narrowest fact
      Foreign keys  transaction_sk -> sv_sales_header      ZERO orphans, 1:1
                    sku_code -> sv_product_sku_master      ZERO orphans
      Referenced by nothing - this is a leaf.
@@ -28,9 +28,9 @@
    ==========================================================================
    This is not "mostly one line per transaction". It is an exact bijection,
    measured four independent ways:
-       77,155 item rows                         = 77,155 header rows
-       77,155 distinct transaction_line_id      = one key per row
-       77,155 distinct transaction_sk IN ITEMS  = no transaction has two lines
+       77,131 item rows                         = 77,131 header rows
+       77,131 distinct transaction_line_id      = one key per row
+       77,131 distinct transaction_sk IN ITEMS  = no transaction has two lines
        MAX(line_number) = MIN(line_number) = 1  = no line is ever numbered 2
        ZERO orphan items, ZERO headers without an item
    So every transaction has exactly one line, and every line has exactly one
@@ -41,7 +41,7 @@
    follow, and they are the most important content of this script.
 
    1. THE HEADER'S MEASURES ARE A VERBATIM COPY OF THIS TABLE'S. Verified across
-      all 77,155 pairs, to the cent, zero exceptions:
+      all 77,131 pairs, to the cent, zero exceptions:
           header.gross_amount   = quantity * unit_price
           header.total_discount = discount_amount
           header.total_tax      = tax_amount
@@ -73,7 +73,7 @@
    Bronze carries category_code on every item row. It is fully derivable by
    walking the product hierarchy built in V5.1.5-V5.1.8:
        sku -> model -> family -> category
-   Measured across all 77,155 rows: ZERO rows where the walk fails to resolve, and
+   Measured across all 77,131 rows: ZERO rows where the walk fails to resolve, and
    ZERO rows where the walked category differs from the stored one.
 
    It is therefore not carried into silver, for the reason established in V5.1.10
@@ -161,7 +161,7 @@
      transaction_sk       TRIM ONLY - a lowercase UUID, and the join key to
                           sv_sales_header which is also TRIM-only. Verified
                           lowercase on both sides. This is the V5.1.10 trap: an
-                          UPPER() here would orphan all 77,155 lines from their
+                          UPPER() here would orphan all 77,131 lines from their
                           headers while leaving both tables looking healthy.
      sku_code             UPPER+TRIM - the join key to sv_product_sku_master,
                           which upper-cases it too. A casing mismatch here would
@@ -191,7 +191,7 @@ SELECT
     -- Business key. Structured and already upper-case, so normalising is safe.
     UPPER(TRIM(b.transaction_line_id))                      AS transaction_line_id,
     -- FK to sv_sales_header. TRIM ONLY - lowercase UUID on both sides. An
-    -- UPPER() here would orphan all 77,155 lines. See V5.1.10.
+    -- UPPER() here would orphan all 77,131 lines. See V5.1.10.
     TRIM(b.transaction_sk)                                  AS transaction_sk,
     -- 1 on every row today. Kept as half the alternate key and for the day
     -- multi-line transactions appear. Not flagged: a 100% value cannot signal.
@@ -280,7 +280,7 @@ SELECT (SELECT COUNT(*) FROM {{ database }}.BRONZE.br_sales_item)               
        (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_sales_item i
           LEFT JOIN {{ database }}.SILVER.sv_product_sku_master s ON i.sku_code=s.sku_code
           WHERE s.sku_code IS NULL)                                                            AS orphan_sku;
--- Recorded: 77155, 77155, 77155, 77155, 0, 0, 0, 0
+-- Recorded: 77131, 77131, 77131, 77131, 0, 0, 0, 0
 -- silver_rows must equal BOTH silver_line_ids and silver_alt_keys.
 
 -- KEY-MUTATION PROOF (the V5.1.10 lesson). Non-zero means the lines have been
@@ -301,7 +301,7 @@ SELECT (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_sales_header)             
        (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_sales_header h
           LEFT JOIN {{ database }}.SILVER.sv_sales_item i ON h.transaction_sk=i.transaction_sk
           WHERE i.transaction_sk IS NULL)                                                   AS headers_without_item;
--- Recorded: 77155, 77155, 77155, 1, 1, 0
+-- Recorded: 77131, 77131, 77131, 1, 1, 0
 -- distinct_sks_in_items = item_rows means no transaction has two lines.
 -- headers_without_item = 0 means none is missing one. An exact bijection - and an
 -- artefact of generation, NOT a guarantee. Do not build logic that assumes it.
@@ -316,7 +316,7 @@ SELECT COUNT(*)                                                              AS 
        SUM(IFF(ABS(h.net_total      - i.line_total) > 0.005,1,0))              AS net_differs
 FROM {{ database }}.SILVER.sv_sales_header h
 JOIN {{ database }}.SILVER.sv_sales_item   i ON h.transaction_sk = i.transaction_sk;
--- Recorded: 77155, 0, 0, 0, 0
+-- Recorded: 77131, 0, 0, 0, 0
 -- All four zero. Gold must pick ONE table as the revenue source; summing both
 -- doubles every amount while leaving the row count looking perfectly correct.
 
@@ -341,7 +341,7 @@ JOIN {{ database }}.SILVER.sv_product_sku_master      s   ON i.sku_code      = s
 JOIN {{ database }}.SILVER.sv_product_model_master    m   ON s.model_code    = m.model_code
 JOIN {{ database }}.SILVER.sv_product_family_master   f   ON m.family_code   = f.family_code
 JOIN {{ database }}.SILVER.sv_product_category_master cat ON f.category_code = cat.category_code;
--- Recorded: 77155 items resolved, 10 categories, 43 families. items_resolved must
+-- Recorded: 77131 items resolved, 10 categories, 43 families. items_resolved must
 -- equal silver_rows - if lower, the hierarchy has a break; if higher, a parent
 -- level has duplicate keys and the fact has started fanning out.
 
@@ -355,7 +355,7 @@ SELECT COUNT(*) AS silver_rows,
        SUM(IFF(tax_amount = 0,1,0))                         AS zero_tax_rows,
        MIN(quantity) AS min_qty, MAX(quantity) AS max_qty
 FROM {{ database }}.SILVER.sv_sales_item;
--- Recorded: 77155, 0, 0, 0, 0, 1205, 1, 2
+-- Recorded: 77131, 0, 0, 0, 0, 1205, 1, 2
 -- zero_tax_rows = 1205 matches the header exactly and is legitimate (V5.1.3).
 
 -- CROSS-TABLE ASSERTION: every SKU sold was available in the transaction's
@@ -366,7 +366,7 @@ FROM {{ database }}.SILVER.sv_sales_item i
 JOIN {{ database }}.SILVER.sv_sales_header h ON i.transaction_sk = h.transaction_sk
 LEFT JOIN {{ database }}.SILVER.sv_product_country_availability a
        ON i.sku_code = a.sku_code AND h.country_code = a.country_code;
--- Recorded: 77155, 0
+-- Recorded: 77131, 0
 -- Passes trivially: V5.1.9 established that availability is a complete 650x35
 -- cartesian with is_available TRUE everywhere, so this check cannot currently
 -- fail. It becomes meaningful only once availability turns selective - kept for

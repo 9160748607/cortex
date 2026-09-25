@@ -16,12 +16,12 @@
    ==========================================================================
    Measured against the fact, not asserted:
 
-       sv_sales_item (current versions)                        77,155
-       joined to dim_product on sku_code                       77,155   safe, 1:1
-       joined to THIS BRIDGE on sku_code alone              2,700,425   35x FAN-OUT
-       joined to THIS BRIDGE on (sku_code, country_code)       77,155   correct
+       sv_sales_item (current versions)                        77,131
+       joined to dim_product on sku_code                       77,131   safe, 1:1
+       joined to THIS BRIDGE on sku_code alone              2,699,585   35x FAN-OUT
+       joined to THIS BRIDGE on (sku_code, country_code)       77,131   correct
 
-   2,700,425 / 77,155 = exactly 35. The correct join needs country_code, which on
+   2,699,585 / 77,131 = exactly 35. The correct join needs country_code, which on
    the fact side lives on sv_sales_header, not sv_sales_item:
 
        FROM sv_sales_item i
@@ -180,8 +180,8 @@ SELECT
      JOIN {{ database }}.GOLD.bridge_product_country b
        ON b.sku_code = i.sku_code AND b.country_code = h.country_code
     WHERE i.__is_current_version)                                     AS bridge_constrained_GOOD;
--- Recorded: 77155, 77155, 2700425, 77155
--- 2700425 / 77155 = exactly 35. Constraining on country_code restores 1:1.
+-- Recorded: 77131, 77131, 2700425, 77131
+-- 2700425 / 77131 = exactly 35. Constraining on country_code restores 1:1.
 
 -- Anything needing attention (expect ZERO rows)
 SELECT product_country_key, sku_code, country_code, dq_issue_flags

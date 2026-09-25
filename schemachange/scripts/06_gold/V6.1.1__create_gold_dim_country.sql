@@ -22,7 +22,7 @@
      Join fan-out  NONE. Measured: 4-way join returns 35 rows from 35, and all
                    three lookups have ZERO orphans. No country has >1 region,
                    currency or tax code.
-     Referenced by sv_sales_header.country_code (77,155 rows), and later
+     Referenced by sv_sales_header.country_code (77,131 rows), and later
                    sv_store_master.country_code (121 rows)
 
    ==========================================================================
@@ -149,8 +149,8 @@
    Tax validity begins AFTER the entire sales period. So GREATEST() returns
    2020-01-01 for every country, and the dimension covers no 2019 sale.
 
-       country-driven validity  ->  77,155 of 77,155 sales rows join
-       intersect all four       ->         24 of 77,155 sales rows join
+       country-driven validity  ->  77,131 of 77,131 sales rows join
+       intersect all four       ->         24 of 77,131 sales rows join
 
    The 24 survivors are exactly the 24 timezone-spillover rows timestamped
    2020-01-01 that AGENT.md section 7 documents. A 99.97% silent loss: the join
@@ -217,7 +217,7 @@ CREATE {{ object_type }} DYNAMIC TABLE IF NOT EXISTS {{ database }}.GOLD.dim_cou
   iso_alpha3               VARCHAR COMMENT 'ISO 3166-1 alpha-3. Do NOT assert country_code = LEFT(iso_alpha3,2): 12 rows differ and 11 are valid ISO pairs. Rejected rule, see AGENT.md section 7.',
   apple_fiscal_segment     VARCHAR COMMENT 'Apple GEOGRAPHIC fiscal segment (5 values). Unrelated to product reporting_segment despite the similar name - never reconcile the two.',
   primary_language         VARCHAR COMMENT 'Primary language of the country.',
-  timezone                 VARCHAR COMMENT 'Representative timezone. Relevant to the 24 sales rows timestamped 2020-01-01 (timezone spillover).',
+  timezone                 VARCHAR COMMENT 'Representative timezone. Was relevant to 24 sales rows timestamped 2020-01-01, since REMOVED by V4.6.3 (timezone spillover).',
   market_tier              VARCHAR COMMENT 'Business market tier. No allow-list asserted - a new tier is a business change, not a defect (DQ rule 4).',
   population_millions      NUMBER  COMMENT 'Population in millions.',
   gdp_usd_billions         NUMBER  COMMENT 'GDP in USD billions.',
@@ -386,7 +386,7 @@ FROM   {{ database }}.SILVER.sv_sales_header h
 JOIN   {{ database }}.GOLD.dim_country d
        ON  d.country_code = h.country_code
        AND h.transaction_timestamp::DATE BETWEEN d.valid_from AND d.valid_to;
--- Recorded: 77155  (= all of sv_sales_header; no fan-out, no loss)
+-- Recorded: 77131  (= all of sv_sales_header; no fan-out, no loss)
 -- For contrast, GREATEST() across all four source intervals yields 24.
 
 -- Attribute resolution. NULLs here mean a LEFT JOIN found no match, which is

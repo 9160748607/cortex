@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------------------
    V6.2.2 - Gold sales fact at ORDER (header) grain (dynamic table)
 
-   One row per transaction_sk, 77,155 rows.
+   One row per transaction_sk, 77,131 rows.
 
    ==========================================================================
    *** THIS IS NOT THE REVENUE SOURCE. READ THIS BEFORE USING IT. ***
@@ -14,7 +14,7 @@
        header total_discount vs SUM(discount_amount)         0 mismatches
        header gross_amount   vs SUM(quantity*unit_price)     0 mismatches
 
-   Both facts therefore total 50,186,627.97. Joining or unioning them to sum money
+   Both facts therefore total 50,172,602.26. Joining or unioning them to sum money
    returns EXACTLY DOUBLE while the row count stays entirely plausible - the
    blocking issue already registered in AGENT.md section 7.
 
@@ -85,7 +85,7 @@
 
 CREATE {{ object_type }} DYNAMIC TABLE IF NOT EXISTS {{ database }}.GOLD.fact_sales_header (
   sales_header_key      VARCHAR COMMENT 'PRIMARY KEY (by construction). SHA1_HEX of transaction_sk.',
-  transaction_sk        VARCHAR COMMENT 'DEGENERATE DIMENSION and the grain. Joins to fact_sales_item.transaction_sk - but *** NEVER JOIN THE TWO FACTS TO SUM MONEY: both total 50,186,627.97 and a naive join returns exactly double while the row count stays plausible. *** AGENT.md section 7.',
+  transaction_sk        VARCHAR COMMENT 'DEGENERATE DIMENSION and the grain. Joins to fact_sales_item.transaction_sk - but *** NEVER JOIN THE TWO FACTS TO SUM MONEY: both total 50,172,602.26 and a naive join returns exactly double while the row count stays plausible. *** AGENT.md section 7.',
   transaction_id        VARCHAR COMMENT 'DEGENERATE DIMENSION. Source-system order number.',
   date_key              NUMBER  COMMENT 'FK to GOLD.dim_date.date_key (YYYYMMDD). LEFT-resolved; assert NOT NULL in DQ.',
   customer_key          VARCHAR COMMENT 'FK to GOLD.dim_customer.customer_key. Zero unresolved measured.',
@@ -100,15 +100,15 @@ CREATE {{ object_type }} DYNAMIC TABLE IF NOT EXISTS {{ database }}.GOLD.fact_sa
   order_gross_amount    NUMBER(38,2) COMMENT 'ADDITIVE at THIS grain only. Source header gross_amount, verified equal to SUM(quantity*unit_price) over the lines (0 mismatches). Prefixed order_ so it cannot be confused with the line measure.',
   order_discount_amount NUMBER(38,2) COMMENT 'ADDITIVE at this grain only. Source header total_discount, verified equal to SUM(line discount_amount).',
   order_tax_amount      NUMBER(38,2) COMMENT 'ADDITIVE at this grain only, and AUTHORITATIVE for tax. Source header total_tax, verified equal to SUM(line tax_amount). Never recompute from dim_country.tax_rate - that rate starts 2020-01-01, after the sales period.',
-  order_net_amount      NUMBER(38,2) COMMENT 'ADDITIVE at this grain only. Source header net_total; totals 50,186,627.97 - THE SAME TOTAL as fact_sales_item.net_amount, because the header is an exact aggregate of the lines. *** Use fact_sales_item.net_amount as the revenue measure; use this one only for order-grain work such as average order value. ***',
-  sale_before_store_open BOOLEAN COMMENT 'TRUE when the order date precedes that store OWN store_open_date. A REGISTERED source defect on ~38,102 rows, not a regression. FALSE for ONLINE orders (N/A member has a NULL open date by design).',
+  order_net_amount      NUMBER(38,2) COMMENT 'ADDITIVE at this grain only. Source header net_total; totals 50,172,602.26 - THE SAME TOTAL as fact_sales_item.net_amount, because the header is an exact aggregate of the lines. *** Use fact_sales_item.net_amount as the revenue measure; use this one only for order-grain work such as average order value. ***',
+  sale_before_store_open BOOLEAN COMMENT 'TRUE when the order date precedes that store OWN store_open_date. A REGISTERED source defect on ~38,088 rows, not a regression. FALSE for ONLINE orders (N/A member has a NULL open date by design).',
   dq_issue_flags        VARCHAR COMMENT 'Row-level DQ flags from the header row. NULL means no flag.',
   source_system         VARCHAR COMMENT 'Originating source system.'
 )
 TARGET_LAG   = DOWNSTREAM
 WAREHOUSE    = {{ warehouse }}
 REFRESH_MODE = INCREMENTAL
-COMMENT      = 'Gold transaction fact at ORDER (header) grain - one row per transaction_sk, 77,155 rows. *** THIS IS NOT THE REVENUE SOURCE. *** Every monetary column here is an EXACT aggregate of GOLD.fact_sales_item (verified: 0 mismatches on gross, discount, tax and net), so the two facts both total 50,186,627.97 and must NEVER be joined or unioned to sum money. Use this fact for order-grain questions only - order counts, average order value, basket size, payment-method and channel mix. Its one measure that the item fact cannot supply is line_count. Money comes from fact_sales_item.net_amount.'
+COMMENT      = 'Gold transaction fact at ORDER (header) grain - one row per transaction_sk, 77,131 rows. *** THIS IS NOT THE REVENUE SOURCE. *** Every monetary column here is an EXACT aggregate of GOLD.fact_sales_item (verified: 0 mismatches on gross, discount, tax and net), so the two facts both total 50,172,602.26 and must NEVER be joined or unioned to sum money. Use this fact for order-grain questions only - order counts, average order value, basket size, payment-method and channel mix. Its one measure that the item fact cannot supply is line_count. Money comes from fact_sales_item.net_amount.'
 AS
 SELECT
   SHA1_HEX(h.transaction_sk)                    AS sales_header_key,
@@ -165,7 +165,7 @@ QUALIFY ROW_NUMBER() OVER (
 -- Refresh mode, checked AT CREATION per section 5. Confirms the GROUP BY
 -- subquery did not force FULL.
 SHOW DYNAMIC TABLES LIKE 'fact_sales_header' IN SCHEMA {{ database }}.GOLD;
--- Recorded: rows 77155, DOWNSTREAM, INCREMENTAL, refresh_mode_reason NULL
+-- Recorded: rows 77131, DOWNSTREAM, INCREMENTAL, refresh_mode_reason NULL
 
 SELECT COUNT(*)                          AS rows_,
        COUNT(DISTINCT sales_header_key)  AS distinct_keys,
@@ -179,8 +179,8 @@ SELECT COUNT(*)                          AS rows_,
        MAX(line_count)                   AS max_line_count,
        COUNT_IF(sale_before_store_open)  AS sale_before_open
 FROM   {{ database }}.GOLD.fact_sales_header;
--- Recorded: 77155, 77155, 50186627.97, 0, 0, 0, 0, 0, 77155, 1, 38102
--- sum_line_count = 77155 with max = 1 confirms strictly one line per order today,
+-- Recorded: 77131, 77131, 50172602.26, 0, 0, 0, 0, 0, 77131, 1, 38102
+-- sum_line_count = 77131 with max = 1 confirms strictly one line per order today,
 --   and equals the fact_sales_item row count exactly.
 
 -- ** THE RECONCILIATION THAT MATTERS. ** Per order, the header total must equal
@@ -198,11 +198,11 @@ WHERE  ABS(h.order_net_amount - i.s) > 0.01;
 -- why they must never be combined.
 SELECT (SELECT SUM(order_net_amount) FROM {{ database }}.GOLD.fact_sales_header) AS header_total,
        (SELECT SUM(net_amount)       FROM {{ database }}.GOLD.fact_sales_item)   AS item_total;
--- Recorded: 50186627.97, 50186627.97
+-- Recorded: 50172602.26, 50172602.26
 
 -- Order grain must match the header source exactly - no rows lost to the INNER
 -- as-of country join.
 SELECT (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_sales_header
          WHERE __is_current_version)                             AS silver_header_rows,
        (SELECT COUNT(*) FROM {{ database }}.GOLD.fact_sales_header) AS fact_rows;
--- Recorded: 77155, 77155
+-- Recorded: 77131, 77131

@@ -44,7 +44,7 @@
 
    THE MEASUREMENT THAT SETTLES IT:
 
-       sales joined to customer on customer_id only                77,155
+       sales joined to customer on customer_id only                77,131
        sales joined to customer on customer_id + updated_at window      0
 
    Using it as valid_from destroys 100% of the join. Same failure mode as
@@ -212,7 +212,7 @@ SELECT
      JOIN {{ database }}.GOLD.dim_customer c ON c.customer_id = h.customer_id
       AND h.transaction_timestamp >= c.load_updated_at
     WHERE h.__is_current_version)                                  AS join_on_load_ts_WRONG;
--- Recorded: 77155, 0
+-- Recorded: 77131, 0
 
 -- PII EXPOSURE CHECK. Confirms no masking policy is attached yet - this should
 -- return ZERO rows TODAY, and the outstanding work is to make it return 9.

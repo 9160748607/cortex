@@ -19,7 +19,7 @@
 
        FROM fact_sales_item f JOIN dim_store s USING (store_key)
 
-   gets 61,804 rows instead of 77,155 and loses a fifth of revenue, while the
+   gets 61,780 rows instead of 77,131 and loses a fifth of revenue, while the
    query looks completely correct. Documentation does not prevent this; a
    dimension member does.
 
@@ -93,7 +93,7 @@ CREATE OR ALTER {{ object_type }} DYNAMIC TABLE {{ database }}.GOLD.dim_store (
   longitude              NUMBER  COMMENT 'Longitude. Range verified -126.18 to 143.79. NULL on the N/A member.',
   format_code            VARCHAR COMMENT 'Store format: MINI / FLG / MALL. No allow-list asserted - a new format is a business change, not a defect (DQ rule 4). NULL on the N/A member.',
   lifecycle_status       VARCHAR COMMENT 'Store lifecycle. ACTIVE on all 121 real stores; ''N/A'' on the synthetic member.',
-  store_open_date        DATE    COMMENT 'THE BUSINESS DATE for this store - 119 distinct values, 2016-04-29 to 2026-04-10. Use THIS for date reasoning, never load_effective_date. *** NULL ON THE N/A MEMBER, which is deliberate: the sale-before-store-open check in fact_sales must not fire for online sales. *** 38,102 sales rows predate their own store opening; compare against EACH STORE OWN open date, never a literal year.',
+  store_open_date        DATE    COMMENT 'THE BUSINESS DATE for this store - 119 distinct values, 2016-04-29 to 2026-04-10. Use THIS for date reasoning, never load_effective_date. *** NULL ON THE N/A MEMBER, which is deliberate: the sale-before-store-open check in fact_sales must not fire for online sales. *** 38,088 sales rows predate their own store opening; compare against EACH STORE OWN open date, never a literal year.',
   store_close_date       DATE    COMMENT 'NULL on all 121 real stores - none has closed. Open-ended state, not a defect.',
   floor_area_sqft        NUMBER  COMMENT 'Floor area. Range 5,205 to 24,570. NULL on the N/A member.',
   annual_rent_usd        NUMBER  COMMENT 'Annual rent USD. Range 660,419 to 19,405,046. Rent-per-sqft reaches 3,690 - prime Apple retail genuinely does, so no plausibility band is asserted. NULL on the N/A member.',

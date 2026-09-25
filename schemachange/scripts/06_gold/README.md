@@ -165,10 +165,10 @@ on products needs the feed to emit effective dates.
 
 | Join | Rows |
 |---|---|
-| `sv_sales_item`, current versions | 77,155 |
-| → `dim_product` on `sku_code` | 77,155 — safe |
-| → bridge on `sku_code` **alone** | **2,700,425** — exactly 35× |
-| → bridge on `(sku_code, country_code)` | 77,155 — correct |
+| `sv_sales_item`, current versions | 77,131 |
+| → `dim_product` on `sku_code` | 77,131 — safe |
+| → bridge on `sku_code` **alone** | **2,699,585** — exactly 35× |
+| → bridge on `(sku_code, country_code)` | 77,131 — correct |
 
 `country_code` is on `sv_sales_header`, not `sv_sales_item`, so the correct join
 needs the header too. Also note `is_available` is **TRUE on all 22,750 rows** — it
@@ -185,23 +185,25 @@ snowflake where a star was available. The same reasoning produced one
 
 ### Carry-forward for `V6.1.7` dim_date
 
-The date dimension **must cover 2020-01-01** or 24 sales rows will not join —
+`V4.6.3` has since **removed** the 24 rows dated 2020-01-01, so the loaded data is
+2019 only (77,131 rows). `dim_date` still covers that date as harmless headroom.
+Originally: the date dimension had to cover 2020-01-01 or 24 sales rows would not join —
 timezone spillover, recorded in `AGENT.md` §7.
 
 ### Carry-forward for `V6.2.1` fact_sales
 
 - Build revenue from `sv_sales_item`, **not** `sv_sales_header`. Their measures
-  are identical 1:1 and both total 50,186,627.97; summing both silently doubles
+  are identical 1:1 and both total 50,172,602.26; summing both silently doubles
   revenue while the row count stays correct.
 - **Filter `__is_current_version = TRUE` on both fact tables.** After `V5.2.2`
   they preserve corrected transactions as new versions; omitting the filter
   double-counts a correction.
 - Join `dim_country` on the **validity window**, not just the code:
   `ON d.country_code = h.country_code AND h.transaction_timestamp::DATE BETWEEN
-  d.valid_from AND d.valid_to`. Verified to return 77,155 of 77,155 rows.
+  d.valid_from AND d.valid_to`. Verified to return 77,131 of 77,131 rows.
 - Join `dim_product` on `sku_code` — safe 1:1, it is SCD-1 with one row per SKU.
 - If you need `bridge_product_country`, constrain **both** `sku_code` and
   `country_code` or it fans out 35×.
-- The 38,102 sales rows predating their store's opening belong here (needs a
+- The 38,088 sales rows predating their store's opening belong here (needs a
   join, per DQ rule 3). Compare against **each store's own** open date.
 - Cross-currency `SUM` remains invalid until an FX dimension exists.

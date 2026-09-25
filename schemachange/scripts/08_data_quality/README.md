@@ -154,14 +154,14 @@ mode. Asserting `<= today` means only **deterioration** alerts. Tighten the
 thresholds as the numbers come down.
 
 **Relative bronze-vs-silver lag, not absolute freshness.** Max
-`transaction_timestamp` in silver is 2020-01-01 (the 24 timezone-spillover rows
+`transaction_timestamp` in silver is 2019-12-31 (`V4.6.3` removed the 24 timezone-spillover rows
 in §7; the dataset is 2019). Any absolute freshness threshold violates forever.
 Comparing silver's max timestamp to *bronze's* is the signal that actually means
 something: it detects silver falling behind its source.
 
 ### What is deliberately NOT checked here
 
-- **The 38,102 sales rows predating their store's opening** — a real defect, but
+- **The 38,088 sales rows predating their store's opening** — a real defect, but
   it belongs in gold per §7, and needs each store's own open date.
 - **Cross-currency amount correctness** — unfixable without an FX dimension. A
   check would assert a problem nobody can action.

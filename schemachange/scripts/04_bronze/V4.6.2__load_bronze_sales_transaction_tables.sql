@@ -31,7 +31,7 @@
    no enforced FKs so the engine does not require it, but a mid-script failure
    then leaves headers without items rather than orphan items.
 
-   Verified after load: 77,155 rows each, keys unique on both sides, zero
+   Verified after load: 77,131 rows each, keys unique on both sides, zero
    orphans in either direction, zero orphans to customer / country / currency /
    store / SKU / category dimensions.
 

@@ -95,7 +95,7 @@ CREATE OR ALTER {{ object_type }} DYNAMIC TABLE {{ database }}.GOLD.dim_country 
   iso_alpha3               VARCHAR COMMENT 'ISO 3166-1 alpha-3. Do NOT assert country_code = LEFT(iso_alpha3,2): 12 rows differ and 11 are valid ISO pairs. Rejected rule, see AGENT.md section 7.',
   apple_fiscal_segment     VARCHAR COMMENT 'Apple GEOGRAPHIC fiscal segment (5 values). Unrelated to product reporting_segment despite the similar name - never reconcile the two.',
   primary_language         VARCHAR COMMENT 'Primary language of the country.',
-  timezone                 VARCHAR COMMENT 'Representative timezone. Relevant to the 24 sales rows timestamped 2020-01-01 (timezone spillover).',
+  timezone                 VARCHAR COMMENT 'Representative timezone. Was relevant to 24 sales rows timestamped 2020-01-01, since REMOVED by V4.6.3 (timezone spillover).',
   market_tier              VARCHAR COMMENT 'Business market tier. No allow-list asserted - a new tier is a business change, not a defect (DQ rule 4).',
   population_millions      NUMBER  COMMENT 'Population in millions.',
   gdp_usd_billions         NUMBER  COMMENT 'GDP in USD billions.',
@@ -241,7 +241,7 @@ FROM   {{ database }}.SILVER.sv_sales_header h
 JOIN   {{ database }}.GOLD.dim_country d
        ON  d.country_code = h.country_code
        AND h.transaction_timestamp::DATE BETWEEN d.valid_from AND d.valid_to;
--- Recorded: 77155 (all of sv_sales_header, no fan-out, no loss)
+-- Recorded: 77131 (all of sv_sales_header, no fan-out, no loss)
 
 -- SCD-2 INTEGRITY: no country may have two current versions, and no two versions
 -- may overlap. Expect ZERO rows from both.

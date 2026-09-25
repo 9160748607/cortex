@@ -21,7 +21,7 @@
 
    THE MEASUREMENT THAT SETTLES IT:
 
-       sales joined to store on store_code only            61,804
+       sales joined to store on store_code only            61,780
        sales joined to store on store_code + effective window     0
 
    Using it as validity destroys 100% of the join. This is the same failure that
@@ -32,7 +32,7 @@
    cannot be mistaken for validity, and its comment states the zero-row result.
 
    store_open_date is the real business date and the one to reason with. Note for
-   V6.2.1: 38,102 sales rows predate their own store's opening (61.6% of
+   V6.2.1: 38,088 sales rows predate their own store's opening (61.6% of
    store-attributed rows; 67 of 121 stores open after the 2019 period). That check
    belongs in the fact and must compare against EACH STORE'S OWN open date, never
    a literal year.
@@ -64,8 +64,8 @@
    Zero orphans once the correct columns are used.
 
    Also: store_id is NULL on 15,351 sales rows - exactly the ONLINE channel, an
-   exact partition with channel_id, per section 7. So a store join returns 61,804
-   not 77,155, and that is CORRECT, not a loss.
+   exact partition with channel_id, per section 7. So a store join returns 61,780
+   not 77,131, and that is CORRECT, not a loss.
 
    tax_jurisdiction_code IS CARRIED BUT USELESS
    --------------------------------------------------------------------
@@ -91,7 +91,7 @@ CREATE {{ object_type }} DYNAMIC TABLE IF NOT EXISTS {{ database }}.GOLD.dim_sto
   longitude              NUMBER  COMMENT 'Longitude. Range verified -126.18 to 143.79.',
   format_code            VARCHAR COMMENT 'Store format: MINI / FLG / MALL. No allow-list asserted - a new format is a business change, not a defect (DQ rule 4).',
   lifecycle_status       VARCHAR COMMENT 'Store lifecycle. ACTIVE on all 121 today.',
-  store_open_date        DATE    COMMENT 'THE BUSINESS DATE for this store - 119 distinct values, 2016-04-29 to 2026-04-10. Use THIS for any date reasoning, never effective_start_date. 38,102 sales rows predate their own store opening; that check belongs in fact_sales and must compare against EACH STORE OWN open date, never a literal year.',
+  store_open_date        DATE    COMMENT 'THE BUSINESS DATE for this store - 119 distinct values, 2016-04-29 to 2026-04-10. Use THIS for any date reasoning, never effective_start_date. 38,088 sales rows predate their own store opening; that check belongs in fact_sales and must compare against EACH STORE OWN open date, never a literal year.',
   store_close_date       DATE    COMMENT 'NULL on all 121 - no store has closed. Open-ended state, not a defect.',
   floor_area_sqft        NUMBER  COMMENT 'Floor area. Range 5,205 to 24,570.',
   annual_rent_usd        NUMBER  COMMENT 'Annual rent USD. Range 660,419 to 19,405,046. Rent-per-sqft reaches 3,690 - prime Apple retail genuinely does, so no plausibility band is asserted. Rejected rule, AGENT.md section 7.',
@@ -190,7 +190,7 @@ SELECT
       AND h.transaction_timestamp::DATE >= s.load_effective_date
     WHERE h.__is_current_version)                                  AS join_on_load_date_WRONG;
 -- Recorded: 61804, 0
--- 61,804 is CORRECT and not a loss: store_id is NULL on the 15,351 ONLINE rows,
+-- 61,780 is CORRECT and not a loss: store_id is NULL on the 15,351 ONLINE rows,
 -- an exact partition with channel_id (section 7). The 0 is the trap.
 
 -- Anything needing attention (expect ZERO rows)

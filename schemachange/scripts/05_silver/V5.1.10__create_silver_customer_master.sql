@@ -45,7 +45,7 @@
        would change.
      - br_sales_header.customer_id is ALSO entirely lowercase, and it joins to
        bronze with ZERO orphans. Upper-casing only this side would silently
-       produce a total join failure - 77,155 sales rows losing their customer.
+       produce a total join failure - 77,131 sales rows losing their customer.
 
    So the treatment is TRIM ONLY. The intent behind the original rule was
    "collapse casing drift so joins cannot silently break"; here the data has no
@@ -418,7 +418,7 @@ SELECT (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_customer_master
           LEFT JOIN {{ database }}.SILVER.sv_customer_master c ON h.customer_id = c.customer_id
           WHERE c.customer_id IS NULL)                                                          AS sales_rows_orphaned;
 -- Recorded: 0, 0, 0. sales_rows_orphaned = 0 is the check that would have caught
--- an UPPER() on the key - it would have returned all 77,155 sales rows.
+-- an UPPER() on the key - it would have returned all 77,131 sales rows.
 
 -- DIVERGENCE 2 PROOF: the dropped columns were fully recoverable from the
 -- dimension, which is why dropping them lost nothing.

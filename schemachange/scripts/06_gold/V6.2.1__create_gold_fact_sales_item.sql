@@ -1,15 +1,15 @@
 /* ---------------------------------------------------------------------------
    V6.2.1 - Gold atomic sales fact at LINE grain (dynamic table)
 
-   One row per (transaction_sk, line_number), 77,155 rows.
-   Revenue: 50,186,627.97
+   One row per (transaction_sk, line_number), 77,131 rows.
+   Revenue: 50,172,602.26
 
    ==========================================================================
    *** THIS IS THE SINGLE SOURCE OF TRUTH FOR REVENUE. ***
    ==========================================================================
    V6.2.2 builds fact_sales_header at ORDER grain. Every monetary column there is
    an EXACT aggregate of this table - measured, 0 mismatches on gross, discount,
-   tax and net. So both facts total 50,186,627.97 and joining or unioning them to
+   tax and net. So both facts total 50,172,602.26 and joining or unioning them to
    sum money DOUBLE-COUNTS while the row count stays entirely plausible. This is
    already registered as a blocking issue in AGENT.md section 7.
 
@@ -20,8 +20,8 @@
    ==========================================================================
    Measured on the current data:
 
-       header rows / distinct transaction_sk        77,155 / 77,155
-       item   rows / distinct transaction_sk        77,155 / 77,155
+       header rows / distinct transaction_sk        77,131 / 77,131
+       item   rows / distinct transaction_sk        77,131 / 77,131
        MIN(lines per header) / MAX(lines per header)      1 / 1
        DISTINCT line_number                                   1
        headers with no items / items with no header       0 / 0
@@ -73,7 +73,7 @@
    An INNER join can silently DROP a fact row if a country ever fails to resolve
    within its validity window - the worst failure mode this repo has, since the
    result still looks clean. Zero rows are unresolved today (measured against all
-   77,155). The mitigation is NOT to switch to a LEFT join, which would cost
+   77,131). The mitigation is NOT to switch to a LEFT join, which would cost
    incremental refresh; it is the row-count assertion in the validation below and
    in the gold DQ checks. If this fact ever returns fewer than the header count,
    the country join is the first place to look.
@@ -93,7 +93,7 @@
    15,351 rows (19.9%) are ONLINE with a NULL source store_id - an exact partition
    with channel_id (0 mismatches). V6.1.8 added the synthetic 'N/A' member to
    dim_store so those rows get a real store_key. Without it, the obvious
-   `JOIN dim_store USING (store_key)` would return 61,804 of 77,155 and quietly
+   `JOIN dim_store USING (store_key)` would return 61,780 of 77,131 and quietly
    lose a fifth of revenue.
 
    ALL DIMENSION KEYS COME FROM GOLD, NOT SILVER
@@ -110,7 +110,7 @@
                                                average only weighted by quantity
 
    Verified: net_amount = extended_gross_amount - discount_amount + tax_amount on
-   all 77,155 rows (0 violations).
+   all 77,131 rows (0 violations).
 
    tax_amount is AUTHORITATIVE. Never recompute it from dim_country.tax_rate -
    that rate is effective 2020-01-01, AFTER the sales period, and recomputing
@@ -127,8 +127,8 @@
    inline was an explicit choice over building 2-row and 9-row dimensions.
 
    NOTE: no SYS_CONSTRAINT_DERIVED_PK is produced here, unlike every gold
-   dimension. The QUALIFY is present and uniqueness holds (77,155 distinct
-   sales_item_key for 77,155 rows, verified), but Snowflake does not infer the
+   dimension. The QUALIFY is present and uniqueness holds (77,131 distinct
+   sales_item_key for 77,131 rows, verified), but Snowflake does not infer the
    constraint through this many joins. Uniqueness is therefore asserted in the
    validation below rather than carried as metadata.
 
@@ -137,7 +137,7 @@
 
 CREATE {{ object_type }} DYNAMIC TABLE IF NOT EXISTS {{ database }}.GOLD.fact_sales_item (
   sales_item_key        VARCHAR COMMENT 'PRIMARY KEY (by construction, not declared - dynamic tables accept no constraint clause). SHA1_HEX of transaction_sk + line_number.',
-  transaction_sk        VARCHAR COMMENT 'DEGENERATE DIMENSION. Silver surrogate for the transaction. Groups lines into an order and is the join key to fact_sales_header - but NEVER join the two facts to sum money (both total 50,186,627.97 today).',
+  transaction_sk        VARCHAR COMMENT 'DEGENERATE DIMENSION. Silver surrogate for the transaction. Groups lines into an order and is the join key to fact_sales_header - but NEVER join the two facts to sum money (both total 50,172,602.26 today).',
   transaction_id        VARCHAR COMMENT 'DEGENERATE DIMENSION. Source-system transaction/order number. No dimension table - correct Kimball treatment for an identifier with no attributes.',
   transaction_line_id   VARCHAR COMMENT 'DEGENERATE DIMENSION. Source-system line identifier.',
   line_number           NUMBER  COMMENT 'Line sequence within the order. Part of the declared grain. ONLY THE VALUE 1 EXISTS TODAY - the source is strictly one line per order (max = min = 1 lines per header, measured). The grain is line-level so that 1:N needs no restructuring.',
@@ -155,15 +155,15 @@ CREATE {{ object_type }} DYNAMIC TABLE IF NOT EXISTS {{ database }}.GOLD.fact_sa
   extended_gross_amount NUMBER(38,2) COMMENT 'ADDITIVE. quantity * unit_price. Reconciles exactly to sv_sales_header.gross_amount (0 mismatches measured).',
   discount_amount       NUMBER(38,2) COMMENT 'ADDITIVE. Line discount. Reconciles exactly to header total_discount.',
   tax_amount            NUMBER(38,2) COMMENT 'ADDITIVE, and AUTHORITATIVE. Never recompute tax from dim_country.tax_rate - that rate is effective 2020-01-01, AFTER the 2019 sales period, and recomputing fails on 5 countries / 5,609 rows. Reconciles exactly to header total_tax.',
-  net_amount            NUMBER(38,2) COMMENT 'ADDITIVE. THE REVENUE MEASURE - source line_total. Totals 50,186,627.97. Satisfies net = extended_gross - discount + tax (0 violations). *** Build revenue from THIS column, not from fact_sales_header. ***',
-  sale_before_store_open BOOLEAN COMMENT 'TRUE when transaction date precedes that store OWN store_open_date. Expected TRUE on ~38,102 rows - a REGISTERED source defect (67 of 121 stores open after the 2019 period), not a regression. Compares per store, never against a literal year. FALSE for ONLINE lines, whose N/A member has a NULL open date by design.',
+  net_amount            NUMBER(38,2) COMMENT 'ADDITIVE. THE REVENUE MEASURE - source line_total. Totals 50,172,602.26. Satisfies net = extended_gross - discount + tax (0 violations). *** Build revenue from THIS column, not from fact_sales_header. ***',
+  sale_before_store_open BOOLEAN COMMENT 'TRUE when transaction date precedes that store OWN store_open_date. Expected TRUE on ~38,088 rows - a REGISTERED source defect (67 of 121 stores open after the 2019 period), not a regression. Compares per store, never against a literal year. FALSE for ONLINE lines, whose N/A member has a NULL open date by design.',
   dq_issue_flags        VARCHAR COMMENT 'Row-level DQ flags from the item and header rows, prefixed by origin. NULL means no flag on either.',
   source_system         VARCHAR COMMENT 'Originating source system, from the header.'
 )
 TARGET_LAG   = DOWNSTREAM
 WAREHOUSE    = {{ warehouse }}
 REFRESH_MODE = INCREMENTAL
-COMMENT      = 'Gold ATOMIC transaction fact at LINE grain - one row per (transaction_sk, line_number), 77,155 rows. *** THIS IS THE SINGLE SOURCE OF TRUTH FOR REVENUE. *** Build all monetary analysis from net_amount here; fact_sales_header carries the same totals at order grain and summing both double-counts while the row count stays plausible. All dimension keys resolve to GOLD dimensions only - no silver reference. country_key uses an as-of range join against SCD-2 dim_country, which requires an INNER join and an EXPLICIT REFRESH_MODE=INCREMENTAL: an outer join with a non-equality predicate can never be incremental, and AUTO silently downgrades this query to FULL.'
+COMMENT      = 'Gold ATOMIC transaction fact at LINE grain - one row per (transaction_sk, line_number), 77,131 rows. *** THIS IS THE SINGLE SOURCE OF TRUTH FOR REVENUE. *** Build all monetary analysis from net_amount here; fact_sales_header carries the same totals at order grain and summing both double-counts while the row count stays plausible. All dimension keys resolve to GOLD dimensions only - no silver reference. country_key uses an as-of range join against SCD-2 dim_country, which requires an INNER join and an EXPLICIT REFRESH_MODE=INCREMENTAL: an outer join with a non-equality predicate can never be incremental, and AUTO silently downgrades this query to FULL.'
 AS
 SELECT
   SHA1_HEX(i.transaction_sk || '|' || i.line_number::VARCHAR) AS sales_item_key,
@@ -224,7 +224,7 @@ QUALIFY ROW_NUMBER() OVER (
 -- Refresh mode, checked AT CREATION per section 5. This is the check that proves
 -- the explicit REFRESH_MODE beat AUTO's downgrade.
 SHOW DYNAMIC TABLES LIKE 'fact_sales_item' IN SCHEMA {{ database }}.GOLD;
--- Recorded: rows 77155, DOWNSTREAM, INCREMENTAL, refresh_mode_reason NULL
+-- Recorded: rows 77131, DOWNSTREAM, INCREMENTAL, refresh_mode_reason NULL
 
 -- Grain, revenue, and FK completeness in one pass.
 SELECT COUNT(*)                            AS rows_,
@@ -243,8 +243,8 @@ SELECT COUNT(*)                            AS rows_,
        COUNT_IF(ABS(net_amount - (extended_gross_amount - discount_amount + tax_amount)) > 0.01)
                                            AS formula_violations
 FROM   {{ database }}.GOLD.fact_sales_item;
--- Recorded: 77155, 77155, 77155,
---           50186627.97, 45424676.28, 5667434.34,
+-- Recorded: 77131, 77131, 77131,
+--           50172602.26, 45411481.85, 5666371.40,
 --           0, 0, 0, 0, 0,
 --           38102, 0, 0
 -- distinct_keys = rows_ is the uniqueness assertion standing in for the derived
@@ -261,13 +261,13 @@ SELECT (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_sales_item
        (SELECT COUNT(*) FROM {{ database }}.GOLD.fact_sales_item) AS fact_rows,
        (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_sales_item WHERE __is_current_version)
          - (SELECT COUNT(*) FROM {{ database }}.GOLD.fact_sales_item) AS rows_lost;
--- Recorded: 77155, 77155, 0   <- rows_lost MUST be 0
+-- Recorded: 77131, 77131, 0   <- rows_lost MUST be 0
 
--- Revenue must tie to silver exactly. 50,186,627.97 is the repo's reference figure.
+-- Revenue must tie to silver exactly. 50,172,602.26 is the repo's reference figure.
 SELECT (SELECT SUM(line_total) FROM {{ database }}.SILVER.sv_sales_item
          WHERE __is_current_version)                             AS silver_revenue,
        (SELECT SUM(net_amount) FROM {{ database }}.GOLD.fact_sales_item) AS fact_revenue;
--- Recorded: 50186627.97, 50186627.97
+-- Recorded: 50172602.26, 50172602.26
 
 -- The N/A store member must absorb exactly the ONLINE rows and no others.
 SELECT f.channel_id,
@@ -280,4 +280,4 @@ GROUP  BY f.channel_id
 ORDER  BY f.channel_id;
 -- Recorded: ONLINE 15351 / 15351 / 0
 --           POS    61804 /     0 / 61804
--- This also proves the star joins without loss: 15351 + 61804 = 77155.
+-- This also proves the star joins without loss: 15351 + 61804 = 77131.

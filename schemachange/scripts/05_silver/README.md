@@ -35,8 +35,8 @@ historical tax recomputation). Both are detailed in the sales-facts section.
 | `V5.1.9` | `SILVER.sv_product_country_availability` | 22,750 | INCREMENTAL, verified |
 | `V5.1.10` | `SILVER.sv_customer_master` | 31,350 | INCREMENTAL, verified |
 | `V5.1.11` | `SILVER.sv_store_master` | 121 | INCREMENTAL, verified |
-| `V5.1.12` | `SILVER.sv_sales_header` | 77,155 | INCREMENTAL, verified |
-| `V5.1.13` | `SILVER.sv_sales_item` | 77,155 | INCREMENTAL, verified |
+| `V5.1.12` | `SILVER.sv_sales_header` | 77,131 | INCREMENTAL, verified |
+| `V5.1.13` | `SILVER.sv_sales_item` | 77,131 | INCREMENTAL, verified |
 
 ## Patterns established by V5.1.1 (reuse for the remaining tables)
 
@@ -121,7 +121,7 @@ to it or raise a DQ flag. The detection query is at the bottom of `V5.1.2`.
 > **RESOLVED in V5.1.12 — and both suggestions above are withdrawn.** Measuring
 > `AVG(net_total)` across all 27 currencies showed every one landing in **620–780**,
 > which is impossible in real retail. The USD-scaling defect therefore affects
-> **all 77,155 rows**, not 8,471 — JPY and KRW are merely the only currencies whose
+> **all 77,131 rows**, not 8,471 — JPY and KRW are merely the only currencies whose
 > `minor_unit = 0` makes the error *detectable*. So:
 > - **Do not `ROUND()`.** Rounding JPY 623.51 → 624 yields a type-correct value
 >   still wrong by ~150×, destroying the only visible evidence while fixing
@@ -321,7 +321,7 @@ compliance-relevant figure anyway, since consent is given at sign-up.
 **1. `customer_id` is NOT upper-cased.** It is a lowercase UUID (RFC 4122
 canonical form), and `br_sales_header.customer_id` is lowercase too. Applying the
 usual `UPPER(TRIM(...))` would *mutate* all 31,350 values and silently orphan all
-**77,155** sales rows. The rule exists to stop casing drift breaking joins; here
+**77,131** sales rows. The rule exists to stop casing drift breaking joins; here
 applying it mechanically would *create* that exact failure. Treatment is `TRIM`
 only. `customer_number` is still upper-cased — it is a structured business code.
 
@@ -430,15 +430,15 @@ operations analyst will quote. Its redundancy is policed by three flags
 `TAX_JURIS_UNEXPECTED_SUFFIX`) plus `STATE_JURIS_DISAGREEMENT` — all zero today,
 which is what keeps "derivable" honest rather than aspirational.
 
-### THE HEADLINE DEFECT — 38,102 sales rows predate their store's opening
+### THE HEADLINE DEFECT — 38,088 sales rows predate their store's opening
 
 Discovered here, but it belongs to the **sales fact**:
 
 - **67 of 121 stores (55%)** have a `store_open_date` after 2019-12-31; 83 opened
   after 2019-01-01; the latest is **2026-04-10**
-- all 77,155 sales rows fall in 2019
-- ⇒ **38,102 sales rows** are attributed to a store that had not yet opened —
-  **61.6% of the 61,804 store-attributed rows** (the other 15,351 have a NULL
+- all 77,131 sales rows fall in 2019
+- ⇒ **38,088 sales rows** are attributed to a store that had not yet opened —
+  **61.6% of the 61,780 store-attributed rows** (the other 15,351 have a NULL
   `store_id` and are the online channel)
 
 `orphan_store_sales = 0`, so every non-null `store_id` does resolve — the keys are
@@ -498,30 +498,30 @@ defect carried forward from V5.1.2.
 
 ## Sales facts complete (V5.1.12 – V5.1.13) — the layer is finished
 
-The first two fact tables, and an exact 1:1 pair. Both 77,155 rows, INCREMENTAL,
+The first two fact tables, and an exact 1:1 pair. Both 77,131 rows, INCREMENTAL,
 tagged, **zero Snowflake recommendations, zero DQ flags, zero duplicate keys,
 zero FK orphans on any dimension**.
 
 | Table | Rows | Key | Alternate key | DQ | Orphans |
 |---|---|---|---|---|---|
-| `sv_sales_header` | 77,155 | `transaction_sk` | `transaction_id` | 0 | 0 on customer, country, currency, store |
-| `sv_sales_item` | 77,155 | `transaction_line_id` | `(transaction_sk, line_number)` | 0 | 0 on header, SKU |
+| `sv_sales_header` | 77,131 | `transaction_sk` | `transaction_id` | 0 | 0 on customer, country, currency, store |
+| `sv_sales_item` | 77,131 | `transaction_line_id` | `(transaction_sk, line_number)` | 0 | 0 on header, SKU |
 
 ### The structure is exact — the problems are values and chronology
 
 Worth stating before the defects, because none of them are structural:
-`net_total = gross_amount − total_discount + total_tax` holds on **all 77,155
+`net_total = gross_amount − total_discount + total_tax` holds on **all 77,131
 rows** to the cent; `line_total = quantity × unit_price − discount_amount +
 tax_amount` likewise. No negative or null amounts, no non-positive net, no
 discount exceeding gross. `channel_id` and `store_id` form an **exact partition**
 — `store_id` is NULL on precisely the 15,351 ONLINE rows and populated on
-precisely the 61,804 POS rows. Header country matches both the store's and the
+precisely the 61,780 POS rows. Header country matches both the store's and the
 customer's country, and currency matches the country's currency, on every row.
 
 ### ⚠️ THE DOUBLE-COUNT TRAP — pick ONE table for revenue
 
-The two tables are an exact bijection, proved four ways: 77,155 = 77,155 rows,
-77,155 distinct `transaction_sk` **in items** (so no transaction has two lines),
+The two tables are an exact bijection, proved four ways: 77,131 = 77,131 rows,
+77,131 distinct `transaction_sk` **in items** (so no transaction has two lines),
 `MIN(line_number) = MAX(line_number) = 1`, and zero headers without an item.
 
 Consequently the header's measures are a **verbatim copy** of the item's —
@@ -534,7 +534,7 @@ header.total_tax      = tax_amount
 header.net_total      = line_total
 ```
 
-Both tables total **50,186,627.97**. A naive join summing measures from each
+Both tables total **50,172,602.26**. A naive join summing measures from each
 returns **100,373,255.94** — exactly double — and because the join is 1:1 **the
 row count stays perfectly correct while every amount is wrong.** A defect with no
 symptom is the worst kind, and this one is easy to introduce.
@@ -551,7 +551,7 @@ has one line per transaction — an artefact of generation, the same class as th
 ### Defect 1 — the currency scale is worse than V5.1.2 thought
 
 See the corrected V5.1.2 note above. Every one of the 27 currencies averages
-620–780 `net_total`, so all 77,155 rows are USD-scaled with the currency as a bare
+620–780 `net_total`, so all 77,131 rows are USD-scaled with the currency as a bare
 label. EUR 701 is a plausible basket; the same 675 in INR is ~USD 8 against a real
 ~65,000 INR.
 
@@ -601,15 +601,15 @@ inclusive-flag attributes.
 **Open item:** making it safe for history means a genuine type-2 dimension with one
 row per (jurisdiction, rate period).
 
-### Defect 3 — 38,102 rows predate their store's opening, and a revised promise
+### Defect 3 — 38,088 rows predate their store's opening, and a revised promise
 
-Carried from V5.1.11 and confirmed: **38,102 rows (61.6% of the 61,804
+Carried from V5.1.11 and confirmed: **38,088 rows (61.6% of the 61,780
 store-attributed rows)** point at a store that had not yet opened, across 67
 implicated stores.
 
 > **V5.1.11 said "V5.1.12 owns the row-level flag". That is revised.** The check
 > needs `sv_store_master.store_open_date`, i.e. a join — which the V5.1.7 rule
-> assigns to set-level validation, and which would make a 77,155-row fact refresh
+> assigns to set-level validation, and which would make a 77,131-row fact refresh
 > whenever a 121-row dimension changes. It would also start this silver fact down
 > the path of joining all five dimensions, which is a gold star-schema build, not a
 > silver cleanse. **The check belongs in gold** (or as a DMF on the joined result);
@@ -623,15 +623,15 @@ silently fails on the next.
 ### Other decisions
 
 - **`category_code` dropped from the item** — provably derivable via
-  sku → model → family → category with **0 unresolved and 0 mismatches / 77,155**.
+  sku → model → family → category with **0 unresolved and 0 mismatches / 77,131**.
   Stronger case than the earlier drops: it is *four* levels away, so it is the
   column most likely to be used as a shortcut and drift unnoticed.
 - **24 rows timestamped 2020-01-01** (timezone spillover) are **not flagged** —
   expressing it needs a hard-coded year boundary, and the timestamps are probably
   correct; only the file-partitioning assumption is naive. **The gold date
-  dimension must cover 2020-01-01** or those 24 rows will fail to join.
+  dimension must cover 2020-01-01** — though `V4.6.3` has since **removed** those 24 rows, so the loaded data is 2019 only (77,131 rows).
 - **`transaction_sk` and `customer_id` are `TRIM`-only** — both lowercase UUIDs, the
-  V5.1.10 trap. An `UPPER()` on either would orphan all 77,155 rows while leaving
+  V5.1.10 trap. An `UPPER()` on either would orphan all 77,131 rows while leaving
   both tables looking healthy. A mutation check is in both validation blocks.
 - **`line_number` is kept but unflagged** — 1 on 100% of rows (the V5.1.7 rule), yet
   it is half the alternate key and becomes essential with multi-line transactions.

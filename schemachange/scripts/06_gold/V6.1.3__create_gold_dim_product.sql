@@ -253,7 +253,7 @@ SELECT (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_sales_item
        (SELECT COUNT(*) FROM {{ database }}.SILVER.sv_sales_item i
           JOIN {{ database }}.GOLD.dim_product p ON p.sku_code = i.sku_code
          WHERE i.__is_current_version) AS joined;
--- Recorded: 77155, 77155  (1:1, no fan-out, no loss)
+-- Recorded: 77131, 77131  (1:1, no fan-out, no loss)
 
 -- Anything needing attention (expect ZERO rows)
 SELECT product_key, sku_code, model_code, family_code, category_code, dq_issue_flags

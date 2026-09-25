@@ -88,7 +88,7 @@ would need to be created and populated — say so rather than assuming it exists
 | Common | `03_common/` V3.x | Done — 2 CSV file formats, 6 sequences (**note:** `V3.1.2` is an intentional gap) |
 | Bronze | `04_bronze/` V4.x | Done — internal stage, 47 staged files, **13 tables loaded** |
 | Silver | `05_silver/` V5.x | **Done — 13 dynamic tables, all INCREMENTAL, all verified** |
-| Gold | `06_gold/` V6.x | **In progress — 5 dims + bridge + 2 facts. `dim_country` (35, SCD-2), `dim_product` (650), `bridge_product_country` (22,750), `dim_store` (**122** = 121 + N/A member), `dim_customer` (31,350, **unmasked PII**), `dim_date` (31,411, **regular table**), `fact_sales_item` (77,155, **revenue source**), `fact_sales_header` (77,155, **not** the revenue source)** |
+| Gold | `06_gold/` V6.x | **In progress — 5 dims + bridge + 2 facts. `dim_country` (35, SCD-2), `dim_product` (650), `bridge_product_country` (22,750), `dim_store` (**122** = 121 + N/A member), `dim_customer` (31,350, **unmasked PII**), `dim_date` (31,411, **regular table**), `fact_sales_item` (77,131, **revenue source**), `fact_sales_header` (77,131, **not** the revenue source)** |
 | Orchestration | `07_orchestration/` V7.x | Scaffold only |
 | Data quality | `08_data_quality/` V8.x | **Done for silver — 31 checks, task created SUSPENDED** |
 
@@ -128,8 +128,8 @@ whole layer**.
 | `V5.1.9` | `sv_product_country_availability` | 22,750 | 0 |
 | `V5.1.10` | `sv_customer_master` | 31,350 | **24,713** |
 | `V5.1.11` | `sv_store_master` | 121 | 0 |
-| `V5.1.12` | `sv_sales_header` | 77,155 | 0 |
-| `V5.1.13` | `sv_sales_item` | 77,155 | 0 |
+| `V5.1.12` | `sv_sales_header` | 77,131 | 0 |
+| `V5.1.13` | `sv_sales_item` | 77,131 | 0 |
 
 ---
 
@@ -192,7 +192,7 @@ These were all discovered by breaking something. Full reasoning in
   and `sv_sales_item` now preserve corrected transactions as new versions.
   `SUM(line_total)` without the filter double-counts a correction. This is
   **invisible today** — every key has one version, so both forms return
-  `50,186,627.97`. It starts being silently wrong when the first correction lands.
+  `50,172,602.26`. It starts being silently wrong when the first correction lands.
   Guarded by `hdr_sk_unique` / `item_line_unique`, which now assert *exactly one
   current version per key* rather than one row per key.
 - **`CREATE OR ALTER` cannot reorder columns** — new ones must be appended after
@@ -200,7 +200,7 @@ These were all discovered by breaking something. Full reasoning in
   `TARGET_LAG = DOWNSTREAM` table with no consumer has `scheduling_state = OFF`,
   so an added column stays NULL until an explicit
   `ALTER DYNAMIC TABLE … REFRESH`. Cost an hour on `V5.2.2` — `__version_hash` was
-  NULL on all 77,155 rows after a "successful" alter.
+  NULL on all 77,131 rows after a "successful" alter.
 - **`QUALIFY ROW_NUMBER()` is also what makes Snowflake derive a PRIMARY KEY**
   on the partition columns (`SYS_CONSTRAINT_DERIVED_PK`, `rely = true`). Removing
   it silently removes the key. See `06_gold/README.md`.
@@ -326,9 +326,9 @@ These were all discovered by breaking something. Full reasoning in
 
   | Source column | Distinct values | Fact join **with** the window |
   |---|---|---|
-  | `sv_tax_master.effective_start_date` | 1 (`2020-01-01`) | 24 of 77,155 rows |
-  | `sv_store_master.effective_start_date` | **1** (`2026-04-17`) | **0** of 61,804 |
-  | `sv_customer_master.updated_at` | 31,350, all in a **5-second window** | **0** of 77,155 |
+  | `sv_tax_master.effective_start_date` | 1 (`2020-01-01`) | **0** of 77,131 rows (was 24, before `V4.6.3`) |
+  | `sv_store_master.effective_start_date` | **1** (`2026-04-17`) | **0** of 61,780 |
+  | `sv_customer_master.updated_at` | 31,350, all in a **5-second window** | **0** of 77,131 |
 
   The two checks, always in this order:
   1. `COUNT(DISTINCT <date>)` — one value, or a span of seconds, means a load stamp.
@@ -392,20 +392,20 @@ relevant script header.
 
 | Issue | Impact |
 |---|---|
-| **All amounts are USD-scaled regardless of currency** | Every one of the 27 currencies averages 620–780 `net_total`. Affects **all 77,155 rows**, not just the 8,471 JPY/KRW rows where `minor_unit = 0` makes it detectable. **Do not `ROUND()`** — it yields a type-correct value still wrong by ~150× and destroys the evidence. |
+| **All amounts are USD-scaled regardless of currency** | Every one of the 27 currencies averages 620–780 `net_total`. Affects **all 77,131 rows**, not just the 8,471 JPY/KRW rows where `minor_unit = 0` makes it detectable. **Do not `ROUND()`** — it yields a type-correct value still wrong by ~150× and destroys the evidence. |
 | **No FX-rate dimension exists** | Cross-currency `SUM(net_total)` runs cleanly and returns a confident, meaningless number. Gold must stay single-currency until one is built. |
 | **`sv_tax_master` is not time-variant** | One row per country, so it cannot express a rate change. Recomputing 2019 tax fails on 5 countries / 5,609 rows — four are real post-2019 rate rises. **The transaction's `total_tax` is authoritative.** Never recompute historical tax from the master. |
-| **Header and item measures are identical (1:1)** | Both total **50,186,627.97**. A naive join summing both returns exactly double **while the row count stays correct**. Build revenue from `sv_sales_item` (lower grain). **Now institutionalised in gold by `V6.2.1`/`V6.2.2`:** `fact_sales_item.net_amount` is the revenue source; `fact_sales_header.order_net_amount` is the same figure at order grain, deliberately prefixed `order_` so the two cannot be confused. Verified per order: 0 mismatches. **Never join or union the two facts to sum money.** |
+| **Header and item measures are identical (1:1)** | Both total **50,172,602.26**. A naive join summing both returns exactly double **while the row count stays correct**. Build revenue from `sv_sales_item` (lower grain). **Now institutionalised in gold by `V6.2.1`/`V6.2.2`:** `fact_sales_item.net_amount` is the revenue source; `fact_sales_header.order_net_amount` is the same figure at order grain, deliberately prefixed `order_` so the two cannot be confused. Verified per order: 0 mismatches. **Never join or union the two facts to sum money.** |
 | **No masking policies exist** | `sv_customer_master` has 9 fully-populated personal-data columns; 1,051 customers are in GDPR countries. Policies belong in `GOVERNANCE` (rule 3) and must be *attached* in silver. **Widened by `V6.1.6`: `GOLD.dim_customer` now re-exposes all 9 columns unmasked, so the same data is readable in two schemas.** Carrying them was an explicit decision (the alternatives — an analytics-only dimension, or a `DATA_SENSITIVITY` tag — are recorded in the `V6.1.6` header), so attaching a policy must now cover **both** `SILVER.sv_customer_master` and `GOLD.dim_customer`. |
 
 ### Data defects to carry forward
 
 | Defect | Detail |
 |---|---|
-| **38,102 sales rows predate their store's opening** | 61.6% of store-attributed rows; 67 of 121 stores open after the 2019 sales period. **RESOLVED into gold by `V6.2.1`/`V6.2.2`** as the `sale_before_store_open` flag — compared against **each store's own** open date, never a hard-coded year, and FALSE for ONLINE rows because the N/A member's open date is NULL by design. Verified at exactly 38,102 on both facts. Still a source defect, now visible rather than latent. |
+| **38,088 sales rows predate their store's opening** | 61.6% of store-attributed rows; 67 of 121 stores open after the 2019 sales period. **RESOLVED into gold by `V6.2.1`/`V6.2.2`** as the `sale_before_store_open` flag — compared against **each store's own** open date, never a hard-coded year, and FALSE for ONLINE rows because the N/A member's open date is NULL by design. Verified at exactly 38,088 on both facts. Still a source defect, now visible rather than latent. |
 | **3,515 customers were minors at registration** | 698 under 13 (COPPA), 1,051 minors in GDPR countries, youngest **11**. Needs a governance decision, not a data fix. |
 | **`UK` is not valid ISO 3166-1 alpha-2** | Should be `GB`. Flagged not rejected — 2,400 customers, 5,862 sales and 8 stores depend on it. |
-| **24 sales rows timestamped 2020-01-01** | Timezone spillover. **RESOLVED by `V6.1.7`** — `dim_date` spans 1950-01-01 → 2035-12-31, and a zero-miss coverage check confirms all 77,155 sales dates resolve. Still relevant to any *hard-coded* 2019 filter, which would silently drop these 24 rows. |
+| **~~24 sales rows timestamped 2020-01-01~~ — REMOVED** | Timezone spillover, transactions late on 2019-12-31 local stamped `2020-01-01`, all 24 POS across 3 countries. **`V4.6.3` now DELETES them**, so the loaded data is genuinely 2019 only (`77,131` rows, max ts `2019-12-31 23:59:33`, 1 distinct year). They carried `14,025.71`, which is why revenue moved `50,186,627.97` → `50,172,602.26`. **They still exist in the staged CSV** — the file is 77,155 rows — so any re-load must re-apply `V4.6.3`, and they legitimately belong to the 2020 load. `dim_date` still covers `2020-01-01`; that is now harmless headroom rather than a requirement. |
 | **1,056 shared email addresses** | 1,006 belong to *different people*; zero true duplicate persons. **Never use email as an identity key.** |
 | **`phone_number` has 4 incompatible formats** | 76.2% non-E.164. No digits-only variant was derived: 6,660 values carry extensions that stripping would fuse onto the subscriber number. |
 | **`sv_product_country_availability` cannot filter** | Complete 650×35 cartesian, `is_available` TRUE everywhere. Joining it to restrict to "available products" removes zero rows; any effect is fan-out. |
@@ -439,7 +439,7 @@ relevant script header.
 | **SCD-2 inside a dynamic table** | **Partly reversed by `V5.2.1` + `V6.1.2` — read this before repeating the old claim.** A DT still cannot *generate* history: it cannot self-reference to close a prior version, and `CURRENT_DATE` in the SELECT list is banned by §5. But that was never the real blocker — silver was *discarding* the prior version as a duplicate, so there was no second row to close an interval against. With silver preserving versions, closing intervals is a pure window function: `valid_to = COALESCE(LEAD(valid_from) OVER (PARTITION BY key ORDER BY valid_from) - 1, effective_end_date)` and `is_current = valid_from = MAX(valid_from) OVER (PARTITION BY key)`. Both are INCREMENTAL-safe, and `dim_country` now does genuine SCD-2. A procedure-maintained table is only needed if you must stamp change-detection times the source does not supply. |
 | **`CREATE OR REPLACE` to change a dynamic-table definition** | Use **`CREATE OR ALTER DYNAMIC TABLE`** — declarative, idempotent and **non-destructive**: verified that `created_on` survived the `V5.2.1` alter, so grants and object identity are preserved. Second documented exception to note 5, and narrower than the semantic view since nothing is dropped. |
 | **Declared PK/FK on a dynamic table** | `CREATE DYNAMIC TABLE` has no constraint clause and `ALTER DYNAMIC TABLE` has no `ADD CONSTRAINT`. **But** `QUALIFY ROW_NUMBER() OVER (PARTITION BY <grain>) = 1` makes Snowflake derive a real `SYS_CONSTRAINT_DERIVED_PK` with `rely = true` — verified on `dim_country` via `SHOW UNIQUE KEYS`. So the `QUALIFY` is the constraint mechanism, not just de-duplication; removing it removes the PK. |
-| **Intersecting all four source validity intervals in `dim_country`** | Textbook SCD-2 conformance, catastrophic here. `sv_tax_master.effective_start_date` is `2020-01-01` on all 35 rows but the sales data is 2019, so `GREATEST()` pushes every `valid_from` past the entire fact period. Measured: country-driven validity joins **77,155 of 77,155** sales rows; intersecting all four joins **24** — and those 24 are exactly the timezone-spillover rows below. A 99.97% silent loss that returns a clean, nearly-empty answer. |
+| **Intersecting all four source validity intervals in `dim_country`** | Textbook SCD-2 conformance, catastrophic here. `sv_tax_master.effective_start_date` is `2020-01-01` on all 35 rows but the sales data is 2019, so `GREATEST()` pushes every `valid_from` past the entire fact period. Measured: country-driven validity joins **77,131 of 77,131** sales rows; intersecting all four joins **24** — and those 24 are exactly the timezone-spillover rows below. A 99.97% silent loss that returns a clean, nearly-empty answer. |
 | `HASH()` for gold surrogate keys | Superseded by `SHA1_HEX`. `HASH()` returns a signed 64-bit number — non-trivial collision probability as dimensions grow, and no cross-version stability contract. An early revision of `06_gold/README.md` recommended it; now reconciled. |
 
 ---

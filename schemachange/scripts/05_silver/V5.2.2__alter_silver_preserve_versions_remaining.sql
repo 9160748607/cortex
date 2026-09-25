@@ -74,7 +74,7 @@
 
    What makes this a live hazard rather than a theoretical one: it is INVISIBLE
    TODAY. Every key has exactly one version, so both queries return the identical
-   50,186,627.97. The unfiltered query will start being wrong silently, at the
+   50,172,602.26. The unfiltered query will start being wrong silently, at the
    moment the first correction lands, with no error and no row-count anomaly that
    an unsuspecting reader would notice.
 
@@ -108,7 +108,7 @@
       landed. Worth re-checking rather than assuming, if this recurs.
 
    2. CREATE OR ALTER DOES NOT RE-MATERIALISE THE ADDED COLUMNS. After a
-      successful alter, __version_hash was NULL on all 77,155 rows and
+      successful alter, __version_hash was NULL on all 77,131 rows and
       __is_current_version was never TRUE - the columns existed in the schema but
       held nothing. These dynamic tables are TARGET_LAG = DOWNSTREAM with no gold
       consumer, so scheduling_state = OFF and nothing recomputed them.
@@ -119,7 +119,7 @@
       zero rows. Do not skip it.
 
    DATA IMPACT: none. All 6 row counts unchanged, revenue identical at
-   50,186,627.97 both filtered and unfiltered.
+   50,172,602.26 both filtered and unfiltered.
    --------------------------------------------------------------------------- */
 
 
@@ -453,24 +453,24 @@ FROM   {{ database }}.SILVER.sv_product_family_master
 UNION ALL SELECT 'sv_product_model_master', COUNT(*), 111, COUNT_IF(__is_current_version), COUNT(DISTINCT model_code), COUNT_IF(__version_hash IS NULL) FROM {{ database }}.SILVER.sv_product_model_master
 UNION ALL SELECT 'sv_product_sku_master', COUNT(*), 650, COUNT_IF(__is_current_version), COUNT(DISTINCT sku_code), COUNT_IF(__version_hash IS NULL) FROM {{ database }}.SILVER.sv_product_sku_master
 UNION ALL SELECT 'sv_product_country_availability', COUNT(*), 22750, COUNT_IF(__is_current_version), COUNT(DISTINCT sku_code||'|'||country_code), COUNT_IF(__version_hash IS NULL) FROM {{ database }}.SILVER.sv_product_country_availability
-UNION ALL SELECT 'sv_sales_header', COUNT(*), 77155, COUNT_IF(__is_current_version), COUNT(DISTINCT transaction_sk), COUNT_IF(__version_hash IS NULL) FROM {{ database }}.SILVER.sv_sales_header
-UNION ALL SELECT 'sv_sales_item', COUNT(*), 77155, COUNT_IF(__is_current_version), COUNT(DISTINCT transaction_line_id), COUNT_IF(__version_hash IS NULL) FROM {{ database }}.SILVER.sv_sales_item
+UNION ALL SELECT 'sv_sales_header', COUNT(*), 77131, COUNT_IF(__is_current_version), COUNT(DISTINCT transaction_sk), COUNT_IF(__version_hash IS NULL) FROM {{ database }}.SILVER.sv_sales_header
+UNION ALL SELECT 'sv_sales_item', COUNT(*), 77131, COUNT_IF(__is_current_version), COUNT(DISTINCT transaction_line_id), COUNT_IF(__version_hash IS NULL) FROM {{ database }}.SILVER.sv_sales_item
 ORDER BY t;
 -- Recorded: every rows_ = expected = cur = keys; null_hash = 0 on all 6.
 
 -- THE REVENUE ASSERTION. Both must equal the figure section 7 records
--- (50,186,627.97). They agree today because every key has one version; the point
+-- (50,172,602.26). They agree today because every key has one version; the point
 -- is that they will DIVERGE once a correction lands, and only the filtered figure
 -- will be right.
 SELECT ROUND(SUM(line_total),2)                                        AS revenue_all_versions,
        ROUND(SUM(IFF(__is_current_version, line_total, 0)),2)          AS revenue_current_only
 FROM   {{ database }}.SILVER.sv_sales_item;
--- Recorded: 50186627.97, 50186627.97
+-- Recorded: 50172602.26, 50172602.26
 
 -- Hash shape.
 SELECT MIN(LENGTH(__version_hash)) AS hash_len, COUNT(DISTINCT __version_hash) AS distinct_hashes
 FROM   {{ database }}.SILVER.sv_sales_item;
--- Recorded: 40, 77155
+-- Recorded: 40, 77131
 
 -- EXACTLY ONE CURRENT VERSION PER KEY - expect ZERO rows from each.
 SELECT transaction_sk FROM {{ database }}.SILVER.sv_sales_header
@@ -493,8 +493,8 @@ SHOW DYNAMIC TABLES IN SCHEMA {{ database }}.SILVER;
 -- EXPECT ONE 'REINITIALIZE' PER ALTERED TABLE, AND DO NOT MISTAKE IT FOR FULL
 -- REFRESH. Changing a dynamic table's definition forces a single rebuild because
 -- the existing materialisation no longer matches the new query. The statistics
--- read like a full refresh - for sv_sales_item, numDeletedRows 77155 and
--- numInsertedRows 77155 - but refresh_mode is still INCREMENTAL. Distinguishing
+-- read like a full refresh - for sv_sales_item, numDeletedRows 77131 and
+-- numInsertedRows 77131 - but refresh_mode is still INCREMENTAL. Distinguishing
 -- the two:
 --     refresh_mode = FULL          every refresh reprocesses everything, forever
 --     refresh_action = REINITIALIZE  one rebuild, then incremental resumes
@@ -518,7 +518,7 @@ SELECT (SELECT COUNT(*) FROM {{ database }}.GOLD.dim_country)               AS d
             ON d.country_code = h.country_code
            AND h.transaction_timestamp::DATE BETWEEN d.valid_from AND d.valid_to
          WHERE h.__is_current_version)                                     AS sales_joined;
--- Recorded: 35, 35, 77155
+-- Recorded: 35, 35, 77131
 
 -- Downstream DQ green (V8.1.7 made the fact checks version-aware).
 SELECT COUNT(*) AS checks, COUNT_IF(passed) AS passed, COUNT_IF(NOT passed) AS failed
