@@ -88,7 +88,7 @@ would need to be created and populated — say so rather than assuming it exists
 | Common | `03_common/` V3.x | Done — 2 CSV file formats, 6 sequences (**note:** `V3.1.2` is an intentional gap) |
 | Bronze | `04_bronze/` V4.x | Done — internal stage, 47 staged files, **13 tables loaded** |
 | Silver | `05_silver/` V5.x | **Done — 13 dynamic tables, all INCREMENTAL, all verified** |
-| Gold | `06_gold/` V6.x | **In progress — `dim_country` (35, SCD-2), `dim_product` (650, SCD-1), `bridge_product_country` (22,750), `dim_store` (121, SCD-1), `dim_customer` (31,350, SCD-1, **unmasked PII**)** |
+| Gold | `06_gold/` V6.x | **In progress — `dim_country` (35, SCD-2), `dim_product` (650, SCD-1), `bridge_product_country` (22,750), `dim_store` (121, SCD-1), `dim_customer` (31,350, SCD-1, **unmasked PII**), `dim_date` (31,411, **regular table**)** |
 | Orchestration | `07_orchestration/` V7.x | Scaffold only |
 | Data quality | `08_data_quality/` V8.x | **Done for silver — 31 checks, task created SUSPENDED** |
 
@@ -249,6 +249,42 @@ These were all discovered by breaking something. Full reasoning in
   table or switching refresh modes; verify in SQL and move on.
   `V5.2.1`, `V5.2.2` and `V6.1.2` each produced one, and all **18** dynamic tables
   (13 silver + 5 gold) remain `INCREMENTAL` with `refresh_mode_reason = NULL`.
+- **A dynamic table must have at least one base table — so a calendar cannot be
+  one.** Measured: `CREATE DYNAMIC TABLE ... FROM TABLE(GENERATOR(...))` fails with
+  `Dynamic Tables must have at least one base table`. `GOLD.dim_date` is therefore
+  the **one regular table in gold**, and that is forced, not a preference. Do not
+  "fix" it by giving it a base table: the only candidate is `sv_sales_header`,
+  which would bound the calendar to the **366** sales days *and* falsely assert
+  that the calendar depends on sales data.
+
+  Two corollaries worth holding on to:
+  - **Lineage to a fact comes from the fact joining the dimension**, not from the
+    dimension reading the fact. `dim_date → fact_sales` is the edge you want, and
+    a regular table upstream of a DT renders fine — bronze → silver is already
+    exactly that pattern. `V6.2.1` must therefore **join** `dim_date` rather than
+    computing `date_key` arithmetically, and must use a **`LEFT JOIN`** so an
+    out-of-range date surfaces as NULL instead of vanishing.
+  - **A statically populated table must contain no relative flags.**
+    `is_current_month` and friends would be evaluated once at load time and be
+    silently wrong forever. Same non-determinism that forces `FULL` refresh in a
+    DT, wearing a different hat.
+- **`dim_date` does not contain `9999-12-31` — never join `valid_to` to it.**
+  `dim_country.valid_to` uses that sentinel for the current version. Joining it to
+  `dim_date` drops **every current row** and returns a clean-looking result. Only
+  ever join `valid_from`. Verified: `SELECT COUNT(*) ... WHERE full_date =
+  '9999-12-31'` returns 0, by design.
+- **Use the ISO date parts, not the plain ones.** `DAYOFWEEK`, `WEEK` and
+  `YEAROFWEEK` depend on the session parameters `WEEK_START` and
+  `WEEK_OF_YEAR_POLICY`, so two users can read different values from the same row.
+  `dim_date` exposes `DAYOFWEEKISO` / `WEEKISO` / `YEAROFWEEKISO` only. Consequence
+  to respect: `2019-12-30` has `year_num = 2019` but `iso_year = 2020`, `iso_week = 1`
+  — **never group by `iso_week` without also grouping by `iso_year`.**
+- **`dim_date.fiscal_*` is an Oct–Sep approximation, not Apple's real calendar.**
+  Apple uses a 52/53-week calendar ending the last Saturday of September (FY2019
+  was 2018-09-30 → 2019-09-28). Measured divergence: `2019-09-30` is FY2019 Q4 in
+  `dim_date` but FY2020 Q1 in reality. Fine for internal grouping; **never
+  reconcile against published Apple financials.** Unrelated to
+  `dim_country.apple_fiscal_segment`, which is geographic.
 - **No streams on bronze tables** — DTs manage their own change tracking, so a
   stream is redundant and forces extended retention.
 - **Before treating ANY source date as SCD-2 validity, measure two things.** This
@@ -259,7 +295,7 @@ These were all discovered by breaking something. Full reasoning in
 
   | Source column | Distinct values | Fact join **with** the window |
   |---|---|---|
-  | `sv_tax_master.effective_date` | 1 (`2020-01-01`) | 24 of 77,155 rows |
+  | `sv_tax_master.effective_start_date` | 1 (`2020-01-01`) | 24 of 77,155 rows |
   | `sv_store_master.effective_start_date` | **1** (`2026-04-17`) | **0** of 61,804 |
   | `sv_customer_master.updated_at` | 31,350, all in a **5-second window** | **0** of 77,155 |
 
@@ -338,7 +374,7 @@ relevant script header.
 | **38,102 sales rows predate their store's opening** | 61.6% of store-attributed rows; 67 of 121 stores open after the 2019 sales period. Belongs in **gold** (needs a join, per DQ rule 3). Must compare against **each store's own** open date, never a hard-coded year. |
 | **3,515 customers were minors at registration** | 698 under 13 (COPPA), 1,051 minors in GDPR countries, youngest **11**. Needs a governance decision, not a data fix. |
 | **`UK` is not valid ISO 3166-1 alpha-2** | Should be `GB`. Flagged not rejected — 2,400 customers, 5,862 sales and 8 stores depend on it. |
-| **24 sales rows timestamped 2020-01-01** | Timezone spillover. **The gold date dimension must cover 2020-01-01** or they will not join. |
+| **24 sales rows timestamped 2020-01-01** | Timezone spillover. **RESOLVED by `V6.1.7`** — `dim_date` spans 1950-01-01 → 2035-12-31, and a zero-miss coverage check confirms all 77,155 sales dates resolve. Still relevant to any *hard-coded* 2019 filter, which would silently drop these 24 rows. |
 | **1,056 shared email addresses** | 1,006 belong to *different people*; zero true duplicate persons. **Never use email as an identity key.** |
 | **`phone_number` has 4 incompatible formats** | 76.2% non-E.164. No digits-only variant was derived: 6,660 values carry extensions that stripping would fuse onto the subscriber number. |
 | **`sv_product_country_availability` cannot filter** | Complete 650×35 cartesian, `is_available` TRUE everywhere. Joining it to restrict to "available products" removes zero rows; any effect is fan-out. |

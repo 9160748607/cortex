@@ -130,7 +130,7 @@ V6.1.3__create_gold_dim_product.sql            # DELIVERED - category/family/mod
 V6.1.4__create_gold_bridge_product_country.sql # DELIVERED - bridge, NOT a dimension
 V6.1.5__create_gold_dim_store.sql              # DELIVERED - SCD-1, load-date trap
 V6.1.6__create_gold_dim_customer.sql           # DELIVERED - SCD-1, CARRIES UNMASKED PII
-V6.1.7__create_gold_dim_date.sql            # must cover 2020-01-01, see below
+V6.1.7__create_gold_dim_date.sql               # DELIVERED - REGULAR TABLE, not a DT
 V6.2.1__create_gold_fact_sales.sql          # joins gold dims, not silver
 V6.3.1__create_gold_agg_sales_summary.sql   # aggregated fact
 V6.4.x__create_gold_dim_*_scd2.sql          # RESERVED - procedure-maintained
