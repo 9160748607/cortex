@@ -222,22 +222,33 @@ These were all discovered by breaking something. Full reasoning in
   `DYNAMIC_TABLE_REFRESH_HISTORY`. Altering a definition is exactly when this can
   silently regress — adding a window function is a plausible way to lose
   incremental — and it was missed once on `dim_country` after `V6.1.2`.
-- **`REINITIALIZE` is NOT `FULL`.** After a definition change, the first refresh
-  is a one-off `refresh_action = REINITIALIZE` that discards and rebuilds, because
-  the existing materialisation no longer matches the new query. Its statistics
-  look alarming — `deleted 35, inserted 35`, i.e. delete-all-then-insert-all — and
-  Snowsight makes it easy to mistake for a full refresh. It is not:
+- **`REINITIALIZE` is NOT `FULL` — and Snowsight labels it "Full refresh".**
+  After a definition change, the first refresh is a one-off
+  `refresh_action = REINITIALIZE` that discards and rebuilds, because the existing
+  materialisation no longer matches the new query. Its statistics read
+  `deleted 35, inserted 35` (delete-all-then-insert-all), and **Snowsight's
+  refresh-history / monitoring page renders this as "Full refresh"**. That display
+  is about the *action*, not the *mode*:
 
   | | Meaning |
   |---|---|
   | `refresh_mode = FULL` | **every** refresh reprocesses everything, forever — a cost problem |
   | `refresh_action = REINITIALIZE` | **one** rebuild after a definition change, then incremental resumes |
 
-  Confirm by refreshing again: an `INCREMENTAL` table with no upstream change
-  returns `No new data` and does no work. A `FULL` table reprocesses regardless.
-  Expect one `REINITIALIZE` per altered table — `V5.2.1`, `V5.2.2` and `V6.1.2`
-  each produced them, and all 14 dynamic tables remain `INCREMENTAL` with
-  `refresh_mode_reason = NULL`.
+  Confirm via SQL, not the UI: `SHOW DYNAMIC TABLES` gives `refresh_mode` and
+  `refresh_mode_reason`. Then refresh again — an `INCREMENTAL` table with no
+  upstream change returns `No new data` and does no work; a `FULL` table
+  reprocesses regardless.
+
+  **⚠ The misleading label is sticky here.** Every DT in this repo is
+  `TARGET_LAG = DOWNSTREAM`, and with no gold consumer and no `V7.x` ingest,
+  `scheduling_state = OFF` — so no further refresh occurs on its own and the
+  `REINITIALIZE` entry stays the most recent one **indefinitely**. Snowsight will
+  keep showing "Full refresh" until gold gains a consumer or the ingest task runs.
+  This has already prompted the question twice. Do not "fix" it by recreating the
+  table or switching refresh modes; verify in SQL and move on.
+  `V5.2.1`, `V5.2.2` and `V6.1.2` each produced one, and all 14 dynamic tables
+  remain `INCREMENTAL` with `refresh_mode_reason = NULL`.
 - **No streams on bronze tables** — DTs manage their own change tracking, so a
   stream is redundant and forces extended retention.
 
