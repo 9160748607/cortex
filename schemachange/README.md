@@ -21,7 +21,7 @@ schemachange/
     ├── 03_common/        V3.x  file formats, sequences
     ├── 04_bronze/        V4.x  landing stage + 13 raw tables      (done)
     ├── 05_silver/        V5.x  13 cleaned dynamic tables          (done)
-    ├── 06_gold/          V6.x  facts, dims, agg, semantic view (scaffold)
+    ├── 06_gold/          V6.x  facts, dims, agg, semantic view  (in progress)
     ├── 07_orchestration/ V7.x  ingest task                   (scaffold)
     └── 08_data_quality/  V8.x  silver DQ check set                (done)
 ```
@@ -148,7 +148,7 @@ and it must be restated in full to change a metric — reasoning in
 | `03_common` | V3.x | Done — 2 CSV file formats, 6 sequences (`V3.1.2` is an intentional gap) |
 | `04_bronze` | V4.x | Done — stage, 47 staged files, **13 tables loaded** |
 | `05_silver` | V5.x | **Done — 13 dynamic tables, all INCREMENTAL and verified** |
-| `06_gold` | V6.x | **In progress — `V6.1.1` `dim_country` delivered (35 rows, DOWNSTREAM, INCREMENTAL, derived PK)** |
+| `06_gold` | V6.x | **In progress — `dim_country` (35, SCD-2), `dim_product` (650, SCD-1), `bridge_product_country` (22,750); all DOWNSTREAM + INCREMENTAL** |
 | `07_orchestration` | V7.x | Scaffold |
 | `08_data_quality` | V8.x | **Done for silver — 31 checks, all passing; task created SUSPENDED** |
 

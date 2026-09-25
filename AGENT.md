@@ -79,7 +79,7 @@ would need to be created and populated — say so rather than assuming it exists
 
 ## 3. Current state
 
-**Silver is complete. Gold is in progress — `dim_country` is the first gold object.**
+**Silver is complete. Gold is in progress — country and product dimensions built.**
 
 | Layer | Folder | State |
 |---|---|---|
@@ -88,7 +88,7 @@ would need to be created and populated — say so rather than assuming it exists
 | Common | `03_common/` V3.x | Done — 2 CSV file formats, 6 sequences (**note:** `V3.1.2` is an intentional gap) |
 | Bronze | `04_bronze/` V4.x | Done — internal stage, 47 staged files, **13 tables loaded** |
 | Silver | `05_silver/` V5.x | **Done — 13 dynamic tables, all INCREMENTAL, all verified** |
-| Gold | `06_gold/` V6.x | **In progress — `V6.1.1` `dim_country` delivered (35 rows, INCREMENTAL, derived PK)** |
+| Gold | `06_gold/` V6.x | **In progress — `dim_country` (35, SCD-2), `dim_product` (650, SCD-1), `bridge_product_country` (22,750)** |
 | Orchestration | `07_orchestration/` V7.x | Scaffold only |
 | Data quality | `08_data_quality/` V8.x | **Done for silver — 31 checks, task created SUSPENDED** |
 
