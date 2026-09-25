@@ -490,6 +490,26 @@ SHOW DYNAMIC TABLES IN SCHEMA {{ database }}.SILVER;
 -- Recorded: 13 of 13 target_lag=DOWNSTREAM, refresh_mode=INCREMENTAL,
 --           refresh_mode_reason=NULL
 
+-- EXPECT ONE 'REINITIALIZE' PER ALTERED TABLE, AND DO NOT MISTAKE IT FOR FULL
+-- REFRESH. Changing a dynamic table's definition forces a single rebuild because
+-- the existing materialisation no longer matches the new query. The statistics
+-- read like a full refresh - for sv_sales_item, numDeletedRows 77155 and
+-- numInsertedRows 77155 - but refresh_mode is still INCREMENTAL. Distinguishing
+-- the two:
+--     refresh_mode = FULL          every refresh reprocesses everything, forever
+--     refresh_action = REINITIALIZE  one rebuild, then incremental resumes
+-- See AGENT.md section 5.
+SELECT refresh_start_time, state, refresh_action, refresh_trigger
+FROM   TABLE({{ database }}.INFORMATION_SCHEMA.DYNAMIC_TABLE_REFRESH_HISTORY(
+         NAME => '{{ database }}.SILVER.sv_sales_item'))
+ORDER  BY refresh_start_time DESC LIMIT 5;
+-- Recorded: most recent = REINITIALIZE / MANUAL - this migration, expected
+
+-- PROOF none of them is stuck in full refresh: with no upstream change an
+-- INCREMENTAL table does no work. A FULL table would reprocess every row.
+ALTER DYNAMIC TABLE {{ database }}.SILVER.sv_sales_item REFRESH;
+-- Recorded: "No new data", refreshed_dt_count = 0
+
 -- Gold unaffected, and the fact join still resolves every current row.
 SELECT (SELECT COUNT(*) FROM {{ database }}.GOLD.dim_country)               AS dim_rows,
        (SELECT COUNT_IF(is_current) FROM {{ database }}.GOLD.dim_country)   AS dim_current,

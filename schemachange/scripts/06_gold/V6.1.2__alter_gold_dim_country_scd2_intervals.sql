@@ -191,8 +191,34 @@ QUALIFY ROW_NUMBER() OVER (
    VALIDATION
    --------------------------------------------------------------------------- */
 
+-- REFRESH MODE SURVIVED THE ALTER. This check was MISSING from the first version
+-- of this script and the omission was caught only by review. Adding window
+-- functions (LEAD, MAX OVER) is a plausible way to lose incremental refresh, so
+-- an ALTER that adds them is exactly when section 5's rule applies: requesting
+-- INCREMENTAL is not the same as getting it.
+SHOW DYNAMIC TABLES LIKE 'dim_country' IN SCHEMA {{ database }}.GOLD;
+-- Recorded: refresh_mode = INCREMENTAL, refresh_mode_reason = NULL,
+--           configured_refresh_mode = INCREMENTAL, target_lag = DOWNSTREAM
+
+-- EXPECT ONE 'REINITIALIZE' HERE, AND DO NOT MISTAKE IT FOR FULL REFRESH.
+-- Changing a dynamic table's definition forces a single rebuild, because the
+-- existing materialisation no longer matches the new query. Its statistics look
+-- like a full refresh (numDeletedRows 35, numInsertedRows 35) but the MODE is
+-- still INCREMENTAL. See AGENT.md section 5.
+SELECT refresh_start_time, state, refresh_action, refresh_trigger
+FROM   TABLE({{ database }}.INFORMATION_SCHEMA.DYNAMIC_TABLE_REFRESH_HISTORY(
+         NAME => '{{ database }}.GOLD.dim_country'))
+ORDER  BY refresh_start_time DESC LIMIT 5;
+-- Recorded: 18:21 REINITIALIZE / MANUAL   <- this alter, expected, one-off
+--           12:14 INCREMENTAL  / CREATION <- V6.1.1
+
+-- PROOF the table is not stuck in full refresh: with no upstream change an
+-- INCREMENTAL table does no work. A FULL table would reprocess all 35 rows.
+ALTER DYNAMIC TABLE {{ database }}.GOLD.dim_country REFRESH;
+-- Recorded: "No new data", refreshed_dt_count = 0
+
 -- The derived PRIMARY KEY survived adding the window functions. This was the
--- real risk of the change - window functions can defeat key derivation.
+-- other real risk of the change - window functions can defeat key derivation.
 SHOW UNIQUE KEYS IN {{ database }}.GOLD.dim_country;
 -- Recorded: COUNTRY_CODE seq 1 / VALID_FROM seq 2, SYS_CONSTRAINT_DERIVED_PK,
 --           rely = true. Unchanged from V6.1.1.

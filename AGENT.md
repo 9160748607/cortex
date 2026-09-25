@@ -216,8 +216,28 @@ These were all discovered by breaking something. Full reasoning in
 - **`SEQ*()` sequences do not work in dynamic tables at all.** The 6 sequences
   from `V3.1.3` are unusable in gold — use hash keys (`SHA1_HEX`) instead.
 - **Always verify `REFRESH_MODE` actually came back `INCREMENTAL`** after
-  creating. Requesting it is not the same as getting it; check
-  `refresh_action` in `DYNAMIC_TABLE_REFRESH_HISTORY` and `refresh_mode_reason`.
+  creating **and after every `CREATE OR ALTER`**. Requesting it is not the same as
+  getting it; check `refresh_mode` + `refresh_mode_reason` in
+  `SHOW DYNAMIC TABLES` and `refresh_action` in
+  `DYNAMIC_TABLE_REFRESH_HISTORY`. Altering a definition is exactly when this can
+  silently regress — adding a window function is a plausible way to lose
+  incremental — and it was missed once on `dim_country` after `V6.1.2`.
+- **`REINITIALIZE` is NOT `FULL`.** After a definition change, the first refresh
+  is a one-off `refresh_action = REINITIALIZE` that discards and rebuilds, because
+  the existing materialisation no longer matches the new query. Its statistics
+  look alarming — `deleted 35, inserted 35`, i.e. delete-all-then-insert-all — and
+  Snowsight makes it easy to mistake for a full refresh. It is not:
+
+  | | Meaning |
+  |---|---|
+  | `refresh_mode = FULL` | **every** refresh reprocesses everything, forever — a cost problem |
+  | `refresh_action = REINITIALIZE` | **one** rebuild after a definition change, then incremental resumes |
+
+  Confirm by refreshing again: an `INCREMENTAL` table with no upstream change
+  returns `No new data` and does no work. A `FULL` table reprocesses regardless.
+  Expect one `REINITIALIZE` per altered table — `V5.2.1`, `V5.2.2` and `V6.1.2`
+  each produced them, and all 14 dynamic tables remain `INCREMENTAL` with
+  `refresh_mode_reason = NULL`.
 - **No streams on bronze tables** — DTs manage their own change tracking, so a
   stream is redundant and forces extended retention.
 
