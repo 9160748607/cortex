@@ -171,14 +171,36 @@ These were all discovered by breaking something. Full reasoning in
   which are only partially incremental and risk forcing FULL refresh. Keep
   `QUALIFY` top-level and put the partition key in the SELECT list.
 - **Partition on `(business_key, version_discriminator)`, NOT the key alone.**
-  Superseded the original "one row per business key" rule in `V5.2.1`. Keying on
-  the business key alone cannot tell a **true duplicate** (same record
+  Superseded the original "one row per business key" rule in `V5.2.1`/`V5.2.2`.
+  Keying on the business key alone cannot tell a **true duplicate** (same record
   redelivered) from a **new version** (same key, changed attributes) — it
-  collapses both, destroying the change before gold can build SCD-2. Current
-  discriminators: `effective_start_date` on 6 masters, `updated_at` on
-  `sv_customer_master`. The 4 product tables have **none** and remain keyed on
-  the business key alone. **Facts are never versioned** — a transaction is
-  immutable, and versioning `sv_sales_header` would double-count revenue.
+  collapses both, destroying the change before gold can build SCD-2.
+  **All 13 tables are now version-preserving**, in two styles dictated by what
+  each source provides:
+
+  | Tables | Discriminator | Currency expressed as |
+  |---|---|---|
+  | 6 masters (`V5.2.1`) | `effective_start_date` | derived downstream from `MAX(valid_from)` |
+  | `sv_customer_master` (`V5.2.1`) | `updated_at` | derived downstream via `LEAD` |
+  | 4 product + 2 facts (`V5.2.2`) | `__version_hash` (content) | materialised `__is_current_version` |
+
+  Do **not** "harmonise" this by adding the flag to the temporal tables —
+  `valid_from` ordering is strictly more informative. The content-hash tables get
+  the flag only because they have no temporal ordering to derive it from, and an
+  `A→B→A` change collapses to two rows there, not three.
+- **⚠ Fact aggregates MUST filter `__is_current_version = TRUE`.** `sv_sales_header`
+  and `sv_sales_item` now preserve corrected transactions as new versions.
+  `SUM(line_total)` without the filter double-counts a correction. This is
+  **invisible today** — every key has one version, so both forms return
+  `50,186,627.97`. It starts being silently wrong when the first correction lands.
+  Guarded by `hdr_sk_unique` / `item_line_unique`, which now assert *exactly one
+  current version per key* rather than one row per key.
+- **`CREATE OR ALTER` cannot reorder columns** — new ones must be appended after
+  all existing columns, and it **does not re-materialise them**. A
+  `TARGET_LAG = DOWNSTREAM` table with no consumer has `scheduling_state = OFF`,
+  so an added column stays NULL until an explicit
+  `ALTER DYNAMIC TABLE … REFRESH`. Cost an hour on `V5.2.2` — `__version_hash` was
+  NULL on all 77,155 rows after a "successful" alter.
 - **`QUALIFY ROW_NUMBER()` is also what makes Snowflake derive a PRIMARY KEY**
   on the partition columns (`SYS_CONSTRAINT_DERIVED_PK`, `rely = true`). Removing
   it silently removes the key. See `06_gold/README.md`.
